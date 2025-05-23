@@ -1,0 +1,9 @@
+[package]
+name = "dataset"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libsql = "0.9.8"
+tokio = { version = "1", features = ["full"] }
+whois-rust = { version = "1.6.0", features = ["tokio"] }
