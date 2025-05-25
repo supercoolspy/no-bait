@@ -1,4 +1,3 @@
-use std::sync::Arc;
 
 use clap::Args;
 use whois_rust::WhoIs;

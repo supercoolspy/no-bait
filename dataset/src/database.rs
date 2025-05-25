@@ -1,6 +1,6 @@
 use std::{net::IpAddr, path::Path};
 
-use libsql::{Builder, Connection, params};
+use libsql::{Builder, Connection};
 
 #[derive(Default)]
 pub(crate) struct Domain {

@@ -1,14 +1,9 @@
-use std::{
-    fmt::format,
-    sync::{Arc, LazyLock},
-};
+use std::sync::{Arc, LazyLock};
 
-use reqwest::Client;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::commands::safebrowsing;
 
 pub(crate) struct SafebrowsingClient {
     api_key: String,

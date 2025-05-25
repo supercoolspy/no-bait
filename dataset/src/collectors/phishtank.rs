@@ -1,6 +1,5 @@
 use flate2::bufread::GzDecoder;
 use log::{debug, warn};
-use reqwest::header::{HeaderName, HeaderValue};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read};

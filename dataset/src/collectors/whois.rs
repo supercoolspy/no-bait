@@ -1,4 +1,3 @@
-use clap::{Args, Subcommand};
 use thiserror::Error;
 use url::Url;
 use whois_rust::{WhoIs, WhoIsLookupOptions};

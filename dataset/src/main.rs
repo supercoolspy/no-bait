@@ -11,14 +11,13 @@ use commands::{
 };
 use database::connect_to_db;
 use dotenv::dotenv;
-use libsql::{Builder, Connection};
 use log::debug;
 use reqwest::Client;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
-use std::{net::IpAddr, path::Path, sync::Arc};
-use whois_rust::{WhoIs, WhoIsLookupOptions};
+use std::sync::Arc;
+use whois_rust::WhoIs;
 
 const WHOIS_SERVERS: &str = include_str!("../assets/servers.json");
 
