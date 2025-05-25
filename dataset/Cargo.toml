@@ -1,9 +1,22 @@
 [package]
-name = "dataset"
+name = "dataset_collector"
 version = "0.1.0"
 edition = "2024"
+description = "A tool to collect datasets for phishing detection"
 
 [dependencies]
+env_logger = "0.11.8"
 libsql = "0.9.8"
 tokio = { version = "1", features = ["full"] }
 whois-rust = { version = "1.6.0", features = ["tokio"] }
+log = "0.4.27"
+dotenv = "0.15.0"
+serde = "1.0.219"
+serde_json = "1.0.140"
+flate2 = "1.0"
+thiserror = "2.0.12"
+reqwest = { version = "0.12.15", features = ["rustls-tls", "http2", "charset"], default-features = false}
+reqwest-middleware = { version = "0.4.2", features = ["http2", "rustls-tls", "json"] }
+reqwest-retry = { version = "0.7.0" }
+url = "2.5.4"
+clap = { version = "4.5.38", features = ["derive", "cargo"] }
