@@ -25,26 +25,21 @@
     "host": "whois.verisign-grs.com",
     "query": "DOMAIN $addr\r\n"
   },
-
   "za.net": "whois.za.net",
   "net": {
     "host": "whois.verisign-grs.com",
     "query": "DOMAIN $addr\r\n"
   },
-
   "eu.org": "whois.eu.org",
   "za.org": "whois.za.org",
   "org": "whois.pir.org",
-
   "edu": "whois.educause.edu",
   "gov": "whois.dotgov.gov",
   "int": "whois.iana.org",
   "mil": null,
-
   "e164.arpa": "whois.ripe.net",
   "in-addr.arpa": null,
   "arpa": "whois.iana.org",
-
   "aero": "whois.aero",
   "asia": "whois.nic.asia",
   "biz": "whois.biz",
@@ -60,14 +55,12 @@
   "tel": "whois.nic.tel",
   "travel": "whois.nic.travel",
   "xxx": "whois.nic.xxx",
-
   "academy": "whois.nic.academy",
   "accountants": "whois.nic.accountants",
   "actor": "whois.nic.actor",
   "agency": "whois.nic.agency",
   "airforce": "whois.nic.airforce",
   "apartments": "whois.nic.apartments",
-  "app": "whois.nic.google",
   "archi": "whois.nic.archi",
   "army": "whois.nic.army",
   "associates": "whois.nic.associates",
@@ -150,7 +143,6 @@
   "dental": "whois.nic.dental",
   "dentist": "whois.nic.dentist",
   "desi": "whois.nic.desi",
-  "dev": "whois.nic.google",
   "diamonds": "whois.nic.diamonds",
   "digital": "whois.donuts.co",
   "direct": "whois.nic.direct",
@@ -446,7 +438,6 @@
   "yachts": "whois.nic.yachts",
   "yokohama": "whois.nic.yokohama",
   "zone": "whois.nic.zone",
-
   "ac": "whois.nic.ac",
   "ad": null,
   "ae": "whois.aeda.net.ae",
@@ -744,7 +735,6 @@
   "za": null,
   "zm": "whois.nic.zm",
   "zw": null,
-
   "xn--3e0b707e": "whois.kr",
   "xn--45brj9c": "whois.inregistry.net",
   "xn--80ao21a": "whois.nic.kz",
@@ -781,9 +771,7 @@
   "xn--xkc2dl3a5ee0h": "whois.inregistry.net",
   "xn--yfro4i67o": "whois.sgnic.sg",
   "xn--ygbi2ammx": "whois.pnina.ps",
-
   "": "whois.iana.org",
-
   "_": {
     "ip": {
       "host": "whois.arin.net",
