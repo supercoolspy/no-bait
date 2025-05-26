@@ -198,3 +198,4 @@ cython_debug/
 
 # Custom stuff
 dataset/phishing.db
+dataset/phishtank.json.gz

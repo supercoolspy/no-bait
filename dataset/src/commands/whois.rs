@@ -1,4 +1,3 @@
-
 use clap::Args;
 use whois_rust::WhoIs;
 

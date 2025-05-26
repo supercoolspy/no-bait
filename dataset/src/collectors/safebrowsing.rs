@@ -4,7 +4,6 @@ use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-
 pub(crate) struct SafebrowsingClient {
     api_key: String,
     client: Arc<ClientWithMiddleware>,

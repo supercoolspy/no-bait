@@ -13,7 +13,7 @@ mod tests {
     #[tokio::test]
     async fn get_phishtank_data() {
         get_latest_data(
-            ClientBuilder::new(Client::new()).build(),
+            &ClientBuilder::new(Client::new()).build(),
             "supercoolspy".to_string(),
         )
         .await

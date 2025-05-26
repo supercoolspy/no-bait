@@ -2,7 +2,7 @@ use std::{net::IpAddr, path::Path};
 
 use libsql::{Builder, Connection};
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct Domain {
     pub(crate) root: String,
     pub(crate) subdomain: Option<String>,

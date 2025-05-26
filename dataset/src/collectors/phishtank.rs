@@ -1,5 +1,7 @@
 use flate2::bufread::GzDecoder;
-use log::{debug, warn};
+use futures::StreamExt;
+use log::{debug, error, warn};
+use rayon::prelude::*;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read};
@@ -53,13 +55,15 @@ pub enum PhishTankError {
 
     #[error("Whois Error: {0}")]
     WhoisError(#[from] WhoIsError),
+
+    #[error("IO Error: {0}")]
+    IOError(#[from] std::io::Error),
 }
 
-pub(super) async fn get_latest_data(
-    client: ClientWithMiddleware,
+pub(crate) async fn get_latest_data(
+    client: &ClientWithMiddleware,
     username: String,
 ) -> Result<PhishTankDataset, PhishTankError> {
-    env_logger::init();
     warn!("phishtank/{}", &username);
 
     let response = client
@@ -73,6 +77,17 @@ pub(super) async fn get_latest_data(
     let bytes = response.bytes().await?;
     debug!("Got data from PhishTank");
 
+    tokio::fs::write("./phishtank.json.gz", &bytes).await?;
+
+    read_archive_to_data(bytes)
+}
+
+pub(crate) async fn get_data_local() -> Result<PhishTankDataset, PhishTankError> {
+    let data = tokio::fs::read("./phishtank.json.gz").await?;
+    read_archive_to_data(data.into())
+}
+
+fn read_archive_to_data(bytes: bytes::Bytes) -> Result<PhishTankDataset, PhishTankError> {
     let decoder = GzDecoder::new(Cursor::new(bytes));
     let data: PhishTankDataset = serde_json::from_reader(decoder)?;
     debug!("Successfully turned data into struct");
@@ -80,39 +95,54 @@ pub(super) async fn get_latest_data(
     Ok(data)
 }
 
-pub(super) async fn get_domain_data(
-    whois: WhoIs,
+pub(crate) async fn get_domain_data(
+    whois: &WhoIs,
     dataset: PhishTankDataset,
 ) -> Result<Vec<Domain>, PhishTankError> {
     let verified: Vec<&PhishTankDatasetElement> = dataset
-        .iter()
+        .par_iter()
         .filter(|datapoint| datapoint.verified == "yes")
         .collect();
+    debug!("Got list of verified domains, there are {}", verified.len());
 
-    let mut domainData: Vec<Domain> = Vec::new();
+    let domain_data: Vec<Result<Domain, PhishTankError>> =
+        futures::stream::iter(verified.into_iter().map(|domain_info| async move {
+            let mut domain = Domain::default();
 
-    for domain_info in verified {
-        let mut domain = Domain::default();
+            let ip = domain_info
+                .details
+                .first()
+                .map(|info| &info.ip_address)
+                .map(|ip| IpAddr::from_str(ip));
 
-        let ip = domain_info
-            .details
-            .first()
-            .map(|info| &info.ip_address)
-            .map(|ip| IpAddr::from_str(ip));
-
-        if let Some(ip_result) = ip {
-            if ip_result.is_ok() {
-                domain.ip = Some(ip_result?)
+            if let Some(ip_result) = ip {
+                if ip_result.is_ok() {
+                    domain.ip = Some(ip_result?)
+                }
             }
-        }
 
-        let data = get_whois_domain(&whois, domain.root).await?;
-        domain.root = data.domain;
-        domain.subdomain = data.subdomain;
-        domain.whois_info = data.whois_data;
+            debug!("Parsing {}", domain_info.url);
 
-        domainData.push(domain);
-    }
+            let data_res = get_whois_domain(whois, domain_info.url.to_string()).await;
+            if data_res.is_err() {
+                error!(
+                    "Error parsing {domain}: {error}",
+                    domain = domain_info.url,
+                    error = data_res.as_ref().err().unwrap()
+                );
+            }
 
-    Ok(domainData)
+            let data = data_res?;
+
+            domain.root = data.domain;
+            domain.subdomain = data.subdomain;
+            domain.whois_info = data.whois_data;
+
+            Ok(domain)
+        }))
+        .buffer_unordered(10)
+        .collect()
+        .await;
+
+    Ok(domain_data.into_iter().flatten().collect())
 }

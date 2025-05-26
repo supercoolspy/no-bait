@@ -6,6 +6,7 @@ use crate::database::init_db;
 use clap::{Parser, Subcommand};
 use collectors::{safebrowsing::SafebrowsingClient, whois::get_whois_domain};
 use commands::{
+    phishtank::{PhishTankCommand, phishtank_command},
     safebrowsing::{SafebrowsingCommand, safebrowsing_command},
     whois::{WhoIsCommand, whois_command},
 };
@@ -34,6 +35,8 @@ enum Commands {
     WhoIs(WhoIsCommand),
     #[command(name = "gsb")]
     GoogleSafeBrowsing(SafebrowsingCommand),
+    #[command(name = "phishtank")]
+    PhishTank(PhishTankCommand),
 }
 
 fn get_whois_client() -> WhoIs {
@@ -84,5 +87,8 @@ async fn main() {
                 .await
                 .unwrap();
         }
+        Commands::PhishTank(command) => phishtank_command(&client, get_whois_client(), command)
+            .await
+            .unwrap(),
     }
 }
