@@ -1,4 +1,5 @@
 pub(super) mod phishtank;
+pub(crate) mod rdap;
 /// Google safebrowsing
 pub(super) mod safebrowsing;
 /// Official Whois Data

@@ -8,6 +8,7 @@ use std::io::{Cursor, Read};
 use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
+use url::Url;
 use whois_rust::WhoIs;
 
 use crate::database::Domain;
@@ -58,6 +59,9 @@ pub enum PhishTankError {
 
     #[error("IO Error: {0}")]
     IOError(#[from] std::io::Error),
+
+    #[error("Url Parsing error: {0}")]
+    UrlParse(#[from] url::ParseError),
 }
 
 pub(crate) async fn get_latest_data(
@@ -123,7 +127,7 @@ pub(crate) async fn get_domain_data(
 
             debug!("Parsing {}", domain_info.url);
 
-            let data_res = get_whois_domain(whois, domain_info.url.to_string()).await;
+            let data_res = get_whois_domain(whois, Url::parse(&domain_info.url)?).await;
             if data_res.is_err() {
                 error!(
                     "Error parsing {domain}: {error}",

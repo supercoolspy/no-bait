@@ -10,14 +10,14 @@ pub(crate) enum WhoIsError {
     #[error("Reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
 
-    #[error("Url Parsing error: {0}")]
-    UrlParse(#[from] url::ParseError),
-
     #[error("No Root Domain Parsable {0}")]
     NoRoot(url::Url),
 
     #[error("Whois lookup error {0}")]
     WhoIsLookupError(#[from] whois_rust::WhoIsError),
+
+    #[error("No whois found (attempt to switch to rdap)")]
+    NoWhois,
 }
 
 #[derive(Debug)]
@@ -40,20 +40,28 @@ fn get_subdomain(url: &Url) -> Option<String> {
     }
 }
 
-pub(crate) async fn get_whois_domain(whois: &WhoIs, url: String) -> Result<WhoIsInfo, WhoIsError> {
-    let url_info = Url::parse(&url)?;
-    let domain = url_info
-        .domain()
-        .ok_or(WhoIsError::NoRoot(url_info.clone()))?;
+pub(crate) async fn get_whois_domain(whois: &WhoIs, url: Url) -> Result<WhoIsInfo, WhoIsError> {
+    let domain = url.domain().ok_or(WhoIsError::NoRoot(url.clone()))?;
 
-    let whois_data = whois
+    let whois_data_res = whois
         .lookup_async(WhoIsLookupOptions::from_string(domain)?)
-        .await?;
+        .await;
+
+    if whois_data_res.as_ref().is_err_and(|e| match e {
+        whois_rust::WhoIsError::MapError(message) => {
+            **message == *"No whois server is known for this kind of object."
+        }
+        _ => false,
+    }) {
+        return Err(WhoIsError::NoWhois);
+    }
+
+    let whois_data = whois_data_res.unwrap();
 
     Ok(WhoIsInfo {
         domain: domain.to_string(),
-        subdomain: get_subdomain(&url_info),
-        path: Some(url_info.path().to_string()),
+        subdomain: get_subdomain(&url),
+        path: Some(url.path().to_string()),
         whois_data,
     })
 }

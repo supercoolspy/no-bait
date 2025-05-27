@@ -23,3 +23,5 @@ clap = { version = "4.5.38", features = ["derive", "cargo"] }
 bytes = "1.10.1"
 rayon = "1.10.0"
 futures = "0.3.31"
+icann-rdap-client = "0.0.22"
+icann-rdap-common = "0.0.22"

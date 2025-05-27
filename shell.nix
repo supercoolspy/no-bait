@@ -3,6 +3,7 @@
     overrides = (builtins.fromTOML (builtins.readFile ./rust-toolchain.toml));
     libPath = with pkgs; lib.makeLibraryPath [
       # load external libraries that you need in your rust project here
+      openssl
     ];
 in
   pkgs.mkShell rec {
@@ -17,6 +18,10 @@ in
 
       # Database management
       turso-cli
+
+      # ICANN RDAP Client doesn't support rustls
+      pkg-config 
+      openssl 
     ];
     RUSTC_VERSION = overrides.toolchain.channel;
     # https://github.com/rust-lang/rust-bindgen#environment-variables
