@@ -22,6 +22,7 @@ in
       # ICANN RDAP Client doesn't support rustls
       pkg-config 
       openssl 
+      gnumake
     ];
     RUSTC_VERSION = overrides.toolchain.channel;
     # https://github.com/rust-lang/rust-bindgen#environment-variables

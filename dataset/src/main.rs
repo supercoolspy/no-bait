@@ -6,6 +6,7 @@ use crate::database::init_db;
 use clap::{Parser, Subcommand};
 use collectors::{safebrowsing::SafebrowsingClient, whois::get_whois_domain};
 use commands::{
+    phishstorm::{PhishStormCommand, phishstorm_command},
     phishtank::{PhishTankCommand, phishtank_command},
     safebrowsing::{SafebrowsingCommand, safebrowsing_command},
     whois::{WhoIsCommand, whois_command},
@@ -13,7 +14,10 @@ use commands::{
 use database::connect_to_db;
 use dotenv::dotenv;
 use log::debug;
-use reqwest::Client;
+use reqwest::{
+    Client,
+    header::{HeaderMap, HeaderValue},
+};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
@@ -37,6 +41,8 @@ enum Commands {
     GoogleSafeBrowsing(SafebrowsingCommand),
     #[command(name = "phishtank")]
     PhishTank(PhishTankCommand),
+    #[command(name = "phishstorm")]
+    PhishStorm(PhishStormCommand),
 }
 
 fn get_whois_client() -> WhoIs {
@@ -51,6 +57,38 @@ fn get_gsb_client(client: Arc<ClientWithMiddleware>) -> SafebrowsingClient {
 
     let client = SafebrowsingClient::new(client, gsb_api_key);
     debug!("Created GSB client");
+
+    client
+}
+
+fn get_reqwest_middleware_client() -> Arc<ClientWithMiddleware> {
+    let mut headers = HeaderMap::new();
+
+    let user_agent_value = format!(
+        "{name} {version}",
+        name = env!("CARGO_PKG_NAME"),
+        version = env!("CARGO_PKG_VERSION")
+    )
+    .to_owned();
+
+    headers.insert(
+        "User-Agent",
+        HeaderValue::from_str(user_agent_value.as_str()).expect("Should be valid header value"),
+    );
+
+    let reqwest_normal_client = reqwest::ClientBuilder::new()
+        .default_headers(headers)
+        .build()
+        .expect("Should be able to make regular reqwest client");
+    debug!("Created normal reqwest client");
+
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
+    let client = Arc::new(
+        ClientBuilder::new(reqwest_normal_client)
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+            .build(),
+    );
+    debug!("Created reqwest client with middleware");
 
     client
 }
@@ -70,12 +108,6 @@ async fn main() {
         .await
         .expect("Should be able to init database");
     debug!("Init'd database");
-    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
-    let client = Arc::new(
-        ClientBuilder::new(Client::new())
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
-            .build(),
-    );
 
     let args = Arguments::parse();
     match args.command {
@@ -83,12 +115,23 @@ async fn main() {
             whois_command(&get_whois_client(), command).await.unwrap();
         }
         Commands::GoogleSafeBrowsing(command) => {
-            safebrowsing_command(get_gsb_client(client), command)
+            safebrowsing_command(get_gsb_client(get_reqwest_middleware_client()), command)
                 .await
                 .unwrap();
         }
-        Commands::PhishTank(command) => phishtank_command(&client, get_whois_client(), command)
-            .await
-            .unwrap(),
+        Commands::PhishTank(command) => phishtank_command(
+            &get_reqwest_middleware_client(),
+            get_whois_client(),
+            command,
+        )
+        .await
+        .unwrap(),
+        Commands::PhishStorm(command) => phishstorm_command(
+            &get_reqwest_middleware_client(),
+            get_whois_client(),
+            command,
+        )
+        .await
+        .unwrap(),
     }
 }
