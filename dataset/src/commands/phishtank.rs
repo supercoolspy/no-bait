@@ -3,8 +3,9 @@ use reqwest_middleware::ClientWithMiddleware;
 use whois_rust::WhoIs;
 
 use crate::collectors::phishtank::{
-    PhishTankError, get_data_local, get_domain_data, get_latest_data,
+    PhishTankError, get_data_local, get_latest_data,
 };
+use crate::collectors::ToDetectedDomain;
 
 #[derive(Args, Debug)]
 pub(crate) struct PhishTankCommand {
@@ -26,7 +27,7 @@ pub(crate) async fn phishtank_command(
     };
 
     if !command.no_analysis {
-        let info = get_domain_data(&whois, dataset).await?;
+        let info = dataset.to_detected_domain()?;
         println!("{:?}", info);
     }
 

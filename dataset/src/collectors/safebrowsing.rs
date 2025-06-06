@@ -112,7 +112,7 @@ impl SafebrowsingClient {
             return Ok(Vec::new());
         }
 
-        let data = data_res.unwrap();
+        let data = data_res?;
 
         Ok(data
             .matches

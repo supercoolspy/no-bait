@@ -22,9 +22,7 @@ pub(crate) enum WhoIsError {
 
 #[derive(Debug)]
 pub(crate) struct WhoIsInfo {
-    pub(crate) domain: String,
-    pub(crate) subdomain: Option<String>,
-    pub(crate) path: Option<String>,
+    pub(crate) url: Url,
     pub(crate) whois_data: String,
 }
 
@@ -56,12 +54,10 @@ pub(crate) async fn get_whois_domain(whois: &WhoIs, url: Url) -> Result<WhoIsInf
         return Err(WhoIsError::NoWhois);
     }
 
-    let whois_data = whois_data_res.unwrap();
+    let whois_data = whois_data_res?;
 
     Ok(WhoIsInfo {
-        domain: domain.to_string(),
-        subdomain: get_subdomain(&url),
-        path: Some(url.path().to_string()),
+        url,
         whois_data,
     })
 }

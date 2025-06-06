@@ -31,7 +31,7 @@ pub enum RDAPError {
     NoHREF,
 }
 
-/// Per google's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
+/// Per most registry's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
 pub(crate) async fn get_rdap_data(
     rdap_client: icann_rdap_client::http::Client,
     store: impl BootstrapStore,

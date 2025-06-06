@@ -8,10 +8,10 @@ use std::io::{Cursor, Read};
 use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
-use url::Url;
+use url::{ParseError, Url};
 use whois_rust::WhoIs;
-
-use crate::database::Domain;
+use crate::collectors::{DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain};
+use crate::database::{DetectionSource, Domain};
 
 use super::whois::{WhoIsError, get_whois_domain};
 
@@ -61,7 +61,10 @@ pub enum PhishTankError {
     IOError(#[from] std::io::Error),
 
     #[error("Url Parsing error: {0}")]
-    UrlParse(#[from] url::ParseError),
+    UrlParse(#[from] ParseError),
+
+    #[error("Parse error: {0}")]
+    ParseError(#[from] DetectedDomainParseError),
 }
 
 pub(crate) async fn get_latest_data(
@@ -99,54 +102,29 @@ fn read_archive_to_data(bytes: bytes::Bytes) -> Result<PhishTankDataset, PhishTa
     Ok(data)
 }
 
-pub(crate) async fn get_domain_data(
-    whois: &WhoIs,
-    dataset: PhishTankDataset,
-) -> Result<Vec<Domain>, PhishTankError> {
-    let verified: Vec<&PhishTankDatasetElement> = dataset
-        .par_iter()
-        .filter(|datapoint| datapoint.verified == "yes")
-        .collect();
-    debug!("Got list of verified domains, there are {}", verified.len());
+impl ToDetectedDomain for PhishTankDataset {
+    fn to_detected_domain(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
+        self
+            .into_par_iter()
+            .filter(|datapoint| datapoint.verified == "yes")
+            .map(|domain_info| {
+                debug!("Parsing {}", domain_info.url);
+                let url = Url::parse(&domain_info.url)?;
 
-    let domain_data: Vec<Result<Domain, PhishTankError>> =
-        futures::stream::iter(verified.into_iter().map(|domain_info| async move {
-            let mut domain = Domain::default();
+                let ip = domain_info
+                    .details
+                    .first()
+                    .map(|info| &info.ip_address)
+                    .map(|ip| IpAddr::from_str(ip))
+                    .transpose()?;
 
-            let ip = domain_info
-                .details
-                .first()
-                .map(|info| &info.ip_address)
-                .map(|ip| IpAddr::from_str(ip));
-
-            if let Some(ip_result) = ip {
-                if ip_result.is_ok() {
-                    domain.ip = Some(ip_result?)
-                }
-            }
-
-            debug!("Parsing {}", domain_info.url);
-
-            let data_res = get_whois_domain(whois, Url::parse(&domain_info.url)?).await;
-            if data_res.is_err() {
-                error!(
-                    "Error parsing {domain}: {error}",
-                    domain = domain_info.url,
-                    error = data_res.as_ref().err().unwrap()
-                );
-            }
-
-            let data = data_res?;
-
-            domain.root = data.domain;
-            domain.subdomain = data.subdomain;
-            domain.whois_info = data.whois_data;
-
-            Ok(domain)
-        }))
-        .buffer_unordered(10)
-        .collect()
-        .await;
-
-    Ok(domain_data.into_iter().flatten().collect())
+                Ok(DetectedDomain {
+                    url,
+                    collector_info: DomainCollectorInfo::PhishTank {
+                        phish_id: domain_info.phish_id,
+                        ip
+                    }
+                })
+        }).collect()
+    }
 }
