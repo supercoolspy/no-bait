@@ -16,7 +16,7 @@ pub(crate) struct Domain {
 }
 
 #[derive(Debug, Error)]
-enum DatabaseError {
+pub enum DatabaseError {
     #[error("LibSQL Error: {0}")]
     LibSQLError(#[from] libsql::Error),
 
@@ -78,13 +78,13 @@ pub(crate) async fn update_domain_row(conn: &Connection, domain: DetectedDomain)
     let row = rows.next().await?.ok_or(DatabaseError::NoRow)?;
 
     let column = row.get_value(0)?;
-    
+
     let extra_info_str = column.as_text().ok_or(DatabaseError::ColumnConvert)?;
 
     let mut extra_info: DetectionColumn = serde_json::from_str(extra_info_str)?;
 
     extra_info.push(domain.collector_info);
-    
+
     conn.prepare("UPDATE domains SET extra_info=$2 WHERE url = $1").await?
         .execute([serde_json::to_string(&extra_info)?]).await?;
 
@@ -93,7 +93,7 @@ pub(crate) async fn update_domain_row(conn: &Connection, domain: DetectedDomain)
 
 pub(crate) async fn update_domain(conn: &Connection, domain: DetectedDomain) -> Result<(), DatabaseError> {
     let exists = check_exists(conn, &domain.url).await?;
-    
+
     if exists {
         update_domain_row(conn, domain).await
     } else {
@@ -108,7 +108,7 @@ pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), 
         create_domain_row(conn, domain).await?;
 
         Ok(())
-    } else { 
+    } else {
         Err(DatabaseError::RowAlreadyExists)
     }
 }

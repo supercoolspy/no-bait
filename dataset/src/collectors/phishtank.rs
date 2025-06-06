@@ -11,7 +11,6 @@ use thiserror::Error;
 use url::{ParseError, Url};
 use whois_rust::WhoIs;
 use crate::collectors::{DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain};
-use crate::database::{DetectionSource, Domain};
 
 use super::whois::{WhoIsError, get_whois_domain};
 
