@@ -11,7 +11,7 @@ pub(crate) enum WhoIsError {
     Reqwest(#[from] reqwest::Error),
 
     #[error("No Root Domain Parsable {0}")]
-    NoRoot(url::Url),
+    NoRoot(Url),
 
     #[error("Whois lookup error {0}")]
     WhoIsLookupError(#[from] whois_rust::WhoIsError),
@@ -24,18 +24,6 @@ pub(crate) enum WhoIsError {
 pub(crate) struct WhoIsInfo {
     pub(crate) url: Url,
     pub(crate) whois_data: String,
-}
-
-fn get_subdomain(url: &Url) -> Option<String> {
-    let host = url.host_str()?;
-    let parts: Vec<&str> = host.split('.').collect();
-
-    // Return the subdomain if there are at least 3 parts (e.g., sub.domain.com)
-    if parts.len() > 2 {
-        Some(parts[..parts.len() - 2].join("."))
-    } else {
-        None
-    }
 }
 
 pub(crate) async fn get_whois_domain(whois: &WhoIs, url: Url) -> Result<WhoIsInfo, WhoIsError> {
