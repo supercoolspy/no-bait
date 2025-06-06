@@ -14,10 +14,7 @@ use commands::{
 use database::connect_to_db;
 use dotenv::dotenv;
 use log::debug;
-use reqwest::{
-    Client,
-    header::{HeaderMap, HeaderValue},
-};
+use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;

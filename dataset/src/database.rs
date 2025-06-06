@@ -1,7 +1,5 @@
-use std::{net::IpAddr, path::Path};
-use std::fmt::Display;
+use std::path::Path;
 use libsql::{Builder, Connection};
-use libsql::params::IntoValue;
 use thiserror::Error;
 use url::Url;
 use crate::collectors::{DetectedDomain, DomainCollectorInfo};

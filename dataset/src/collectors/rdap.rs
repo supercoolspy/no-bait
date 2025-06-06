@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use icann_rdap_client::{
-    http::create_client,
     iana::BootstrapStore,
     rdap::{QueryType, rdap_bootstrapped_request, rdap_url_request},
 };

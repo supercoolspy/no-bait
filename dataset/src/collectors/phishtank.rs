@@ -1,18 +1,15 @@
 use flate2::bufread::GzDecoder;
-use futures::StreamExt;
 use log::{debug, error, warn};
 use rayon::prelude::*;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
-use std::io::{Cursor, Read};
+use std::io::{Cursor};
 use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
 use url::{ParseError, Url};
-use whois_rust::WhoIs;
 use crate::collectors::{DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain};
-
-use super::whois::{WhoIsError, get_whois_domain};
+use super::whois::WhoIsError;
 
 pub type PhishTankDataset = Vec<PhishTankDatasetElement>;
 

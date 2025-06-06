@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use rayon::prelude::IntoParallelRefIterator;
 use thiserror::Error;
-use url::Url;
 use zip::ZipArchive;
 use crate::collectors::{DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain};
 
