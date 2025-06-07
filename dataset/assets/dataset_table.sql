@@ -6,6 +6,7 @@ CREATE TABLE if not exists domains (
 );
 
 CREATE TABLE if not exists pending_domains (
-    url TEXT NOT NULL PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
     collector_data TEXT NOT NULL
 );
