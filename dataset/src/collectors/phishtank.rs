@@ -1,5 +1,9 @@
 use super::whois::WhoIsError;
-use crate::collectors::{CollectorSpecificInfo, DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain};
+use crate::collectors::{
+    CollectorSpecificInfo, DetectedDomain, DetectedDomainParseError, DomainCollectorInfo,
+    ToDetectedDomain,
+};
+use crate::database::DatabaseError;
 use flate2::bufread::GzDecoder;
 use log::{debug, error, warn};
 use rayon::prelude::*;
@@ -10,7 +14,6 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
 use url::{ParseError, Url};
-use crate::database::DatabaseError;
 
 pub type PhishTankDataset = Vec<PhishTankDatasetElement>;
 
@@ -124,7 +127,7 @@ impl ToDetectedDomain for PhishTankDataset {
                             phish_id: domain_info.phish_id,
                             ip,
                         },
-                        phishing: true
+                        phishing: true,
                     },
                 })
             })

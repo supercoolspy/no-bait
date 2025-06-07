@@ -1,11 +1,8 @@
 use clap::Args;
 use libsql::Connection;
-use log::info;
 use reqwest_middleware::ClientWithMiddleware;
-use whois_rust::WhoIs;
-
-use crate::collectors::phishstorm::{PhishStormError, download_phishstorm_dataset, get_data_local, PhishStormDataset};
-use crate::collectors::{DetectedDomain, ToDetectedDomain};
+use crate::collectors::ToDetectedDomain;
+use crate::collectors::phishstorm::{PhishStormError, download_phishstorm_dataset, get_data_local};
 use crate::database::add_pending_domains;
 
 #[derive(Args, Debug)]

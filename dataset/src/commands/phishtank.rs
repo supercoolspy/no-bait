@@ -1,11 +1,9 @@
-use clap::Args;
-use libsql::Connection;
-use reqwest_middleware::ClientWithMiddleware;
-use whois_rust::WhoIs;
-
 use crate::collectors::ToDetectedDomain;
 use crate::collectors::phishtank::{PhishTankError, get_data_local, get_latest_data};
 use crate::database::add_pending_domains;
+use clap::Args;
+use libsql::Connection;
+use reqwest_middleware::ClientWithMiddleware;
 
 #[derive(Args, Debug)]
 pub(crate) struct PhishTankCommand {

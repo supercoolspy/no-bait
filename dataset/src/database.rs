@@ -1,8 +1,8 @@
 use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use libsql::params::IntoValue;
 use libsql::{Builder, Connection};
-use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use thiserror::Error;
 use url::Url;
 
@@ -162,7 +162,7 @@ pub(crate) async fn add_pending_domains(
     }
 
     let tx = conn.transaction().await?;
-    
+
     for domain in domains {
         tx.execute(
             "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2)",
@@ -173,7 +173,7 @@ pub(crate) async fn add_pending_domains(
         )
         .await?;
     }
-    
+
     tx.commit().await?;
 
     Ok(())

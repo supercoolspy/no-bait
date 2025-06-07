@@ -1,7 +1,10 @@
 use rayon::iter::ParallelIterator;
 use std::io::{Cursor, Read};
-
-use crate::collectors::{CollectorSpecificInfo, DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain};
+use crate::collectors::{
+    CollectorSpecificInfo, DetectedDomain, DetectedDomainParseError, DomainCollectorInfo,
+    ToDetectedDomain,
+};
+use crate::database::DatabaseError;
 use log::{debug, error, info};
 use rayon::prelude::IntoParallelRefIterator;
 use reqwest_middleware::ClientWithMiddleware;
@@ -10,7 +13,6 @@ use std::fs::File;
 use thiserror::Error;
 use url::Url;
 use zip::ZipArchive;
-use crate::database::DatabaseError;
 
 pub(crate) type PhishStormDataset = Vec<PhishStormEntry>;
 
@@ -106,9 +108,11 @@ impl ToDetectedDomain for PhishStormDataset {
                 Ok(DetectedDomain {
                     url: url_res?,
                     collector_info: DomainCollectorInfo {
-                        collector_specific_info: CollectorSpecificInfo::PhishStorm { ranking: d.ranking },
-                        phishing: d.label == 1.0
-                    }
+                        collector_specific_info: CollectorSpecificInfo::PhishStorm {
+                            ranking: d.ranking,
+                        },
+                        phishing: d.label == 1.0,
+                    },
                 })
             })
             .collect()
