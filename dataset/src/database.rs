@@ -152,3 +152,29 @@ pub(crate) async fn add_pending_domain(
 
     Ok(())
 }
+
+pub(crate) async fn add_pending_domains(
+    conn: &Connection,
+    domains: Vec<DetectedDomain>,
+) -> Result<(), DatabaseError> {
+    if domains.is_empty() {
+        return Ok(());
+    }
+
+    let tx = conn.transaction().await?;
+    
+    for domain in domains {
+        tx.execute(
+            "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2)",
+            [
+                domain.url.as_str().into_value()?,
+                serde_json::to_string(&domain.collector_info)?.into_value()?,
+            ],
+        )
+        .await?;
+    }
+    
+    tx.commit().await?;
+    
+    Ok(())
+}

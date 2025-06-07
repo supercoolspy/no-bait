@@ -2,8 +2,8 @@ mod collectors;
 mod commands;
 mod database;
 
-use crate::database::init_db;
-use clap::{Parser, Subcommand};
+use crate::database::{add_pending_domains, init_db};
+use clap::{arg, Parser, Subcommand};
 use collectors::{safebrowsing::SafebrowsingClient, whois::get_whois_domain};
 use commands::{
     phishstorm::{PhishStormCommand, phishstorm_command},
@@ -26,6 +26,9 @@ const WHOIS_SERVERS: &str = include_str!("../assets/servers.json");
 #[derive(Parser, Debug)]
 #[command(name = "program")]
 struct Arguments {
+    #[arg(short, long, default_value_t = false)]
+    no_analysis: bool,
+    
     #[command(subcommand)]
     command: Commands,
 }
@@ -118,15 +121,17 @@ async fn main() {
         }
         Commands::PhishTank(command) => phishtank_command(
             &get_reqwest_middleware_client(),
-            get_whois_client(),
+            conn,
             command,
+            args.no_analysis
         )
         .await
         .unwrap(),
         Commands::PhishStorm(command) => phishstorm_command(
             &get_reqwest_middleware_client(),
-            get_whois_client(),
+            conn,
             command,
+            args.no_analysis
         )
         .await
         .unwrap(),

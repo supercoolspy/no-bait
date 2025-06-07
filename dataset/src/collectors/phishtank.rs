@@ -12,6 +12,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
 use url::{ParseError, Url};
+use crate::database::DatabaseError;
 
 pub type PhishTankDataset = Vec<PhishTankDatasetElement>;
 
@@ -63,6 +64,9 @@ pub enum PhishTankError {
 
     #[error("Parse error: {0}")]
     ParseError(#[from] DetectedDomainParseError),
+
+    #[error("Database error: {0}")]
+    DatabaseError(#[from] DatabaseError),
 }
 
 pub(crate) async fn get_latest_data(
@@ -101,7 +105,7 @@ fn read_archive_to_data(bytes: bytes::Bytes) -> Result<PhishTankDataset, PhishTa
 }
 
 impl ToDetectedDomain for PhishTankDataset {
-    fn to_detected_domain(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
+    fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.into_par_iter()
             .filter(|datapoint| datapoint.verified == "yes")
             .map(|domain_info| {

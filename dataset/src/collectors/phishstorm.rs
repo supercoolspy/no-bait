@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use thiserror::Error;
 use zip::ZipArchive;
+use crate::database::DatabaseError;
 
 pub(crate) type PhishStormDataset = Vec<PhishStormEntry>;
 
@@ -43,6 +44,9 @@ pub(crate) enum PhishStormError {
 
     #[error("Parse error: {0}")]
     ParseError(#[from] DetectedDomainParseError),
+
+    #[error("Database error: {0}")]
+    DatabaseError(#[from] DatabaseError),
 }
 
 pub(crate) async fn download_phishstorm_dataset(
@@ -86,7 +90,7 @@ fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormEr
 }
 
 impl ToDetectedDomain for PhishStormDataset {
-    fn to_detected_domain(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
+    fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.par_iter()
             .map(|d| {
                 debug!("Parsing {}", &d.domain);

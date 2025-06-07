@@ -36,7 +36,7 @@ pub enum DetectedDomainParseError {
 }
 
 pub trait ToDetectedDomain {
-    fn to_detected_domain(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError>;
+    fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError>;
 }
 
 #[cfg(test)]

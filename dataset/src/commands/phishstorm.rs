@@ -1,22 +1,24 @@
 use clap::Args;
+use libsql::Connection;
 use log::info;
 use reqwest_middleware::ClientWithMiddleware;
 use whois_rust::WhoIs;
 
-use crate::collectors::phishstorm::{PhishStormError, download_phishstorm_dataset, get_data_local};
+use crate::collectors::phishstorm::{PhishStormError, download_phishstorm_dataset, get_data_local, PhishStormDataset};
+use crate::collectors::{DetectedDomain, ToDetectedDomain};
+use crate::database::add_pending_domains;
 
 #[derive(Args, Debug)]
 pub(crate) struct PhishStormCommand {
     #[arg(short, long, default_value_t = false)]
     local: bool,
-    #[arg(short, long, default_value_t = false)]
-    no_analysis: bool,
 }
 
 pub(crate) async fn phishstorm_command(
     client: &ClientWithMiddleware,
-    whois: WhoIs,
+    conn: Connection,
     command: PhishStormCommand,
+    no_analysis: bool,
 ) -> Result<(), PhishStormError> {
     let dataset = if command.local {
         get_data_local().await?
@@ -24,13 +26,9 @@ pub(crate) async fn phishstorm_command(
         download_phishstorm_dataset(client).await?
     };
 
-    dataset
-        .iter()
-        .filter(|d| d.label == 1.0)
-        .map(|d| &d.domain)
-        .for_each(|d| info!("{}", d));
-
-    // TODO: Analyze data
+    if !no_analysis {
+        add_pending_domains(&conn, dataset.to_detected_domains()?).await?;
+    }
 
     Ok(())
 }
