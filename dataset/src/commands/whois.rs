@@ -11,7 +11,11 @@ pub(crate) struct WhoIsCommand {
 pub(crate) async fn whois_command(whois: &WhoIs, command: WhoIsCommand) -> Result<(), WhoIsError> {
     let info = get_whois_domain(whois, command.website.parse().unwrap()).await?;
 
-    println!("Domain: {}\nWhois Data: {}", info.url.as_str(), info.whois_data);
+    println!(
+        "Domain: {}\nWhois Data: {}",
+        info.url.as_str(),
+        info.whois_data
+    );
 
     Ok(())
 }

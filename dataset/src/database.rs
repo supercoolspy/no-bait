@@ -1,16 +1,17 @@
-use std::path::Path;
+use crate::collectors::{DetectedDomain, DomainCollectorInfo};
+use libsql::params::IntoValue;
 use libsql::{Builder, Connection};
+use std::path::Path;
 use thiserror::Error;
 use url::Url;
-use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 
-pub type DetectionColumn = Vec<DomainCollectorInfo>;
+pub type CollectorColumn = Vec<DomainCollectorInfo>;
 
 #[derive(Debug)]
 pub(crate) struct Domain {
     pub(crate) url: Url,
     pub(crate) whois_info: String,
-    pub(crate) detection: DetectionColumn
+    pub(crate) collectors: CollectorColumn,
 }
 
 #[derive(Debug, Error)]
@@ -51,45 +52,63 @@ pub(crate) async fn init_db(conn: &Connection) -> Result<(), DatabaseError> {
 }
 
 pub(crate) async fn check_exists(conn: &Connection, url: &Url) -> Result<bool, DatabaseError> {
-    let rows = conn.query("SELECT url from domains WHERE url = $1", &[url.as_str()]).await?;
+    let rows = conn
+        .query("SELECT url from domains WHERE url = $1", &[url.as_str()])
+        .await?;
 
     Ok(rows.column_name(0).is_some())
 }
 
-pub(crate) async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
+pub(crate) async fn create_domain_row(
+    conn: &Connection,
+    domain: Domain,
+) -> Result<(), DatabaseError> {
     conn.execute(
-        "INSERT INTO domains (url, whois_info, ip, category) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO domains (url, whois_info, collector_info, phishing) VALUES ($1, $2, $3)",
         [
             domain.url.as_str().to_string(),
             domain.whois_info,
-            serde_json::to_string(&domain.detection)?,
+            serde_json::to_string(&vec![domain.collectors])?,
         ],
     )
-        .await?;
+    .await?;
 
     Ok(())
 }
 
-pub(crate) async fn update_domain_row(conn: &Connection, domain: DetectedDomain) -> Result<(), DatabaseError> {
-    let mut rows = conn.query("SELECT extra_info from domains WHERE url = $1", &[domain.url.as_str()]).await?;
+pub(crate) async fn update_domain_row(
+    conn: &Connection,
+    domain: DetectedDomain,
+) -> Result<(), DatabaseError> {
+    let mut rows = conn
+        .query(
+            "SELECT collector_info from domains WHERE url = $1",
+            &[domain.url.as_str()],
+        )
+        .await?;
 
     let row = rows.next().await?.ok_or(DatabaseError::NoRow)?;
 
     let column = row.get_value(0)?;
 
-    let extra_info_str = column.as_text().ok_or(DatabaseError::ColumnConvert)?;
+    let collector_info_str = column.as_text().ok_or(DatabaseError::ColumnConvert)?;
 
-    let mut extra_info: DetectionColumn = serde_json::from_str(extra_info_str)?;
+    let mut collector_info: CollectorColumn = serde_json::from_str(collector_info_str)?;
 
-    extra_info.push(domain.collector_info);
+    collector_info.push(domain.collector_info);
 
-    conn.prepare("UPDATE domains SET extra_info=$2 WHERE url = $1").await?
-        .execute([serde_json::to_string(&extra_info)?]).await?;
+    conn.prepare("UPDATE domains SET collector_info=$2 WHERE url = $1")
+        .await?
+        .execute([serde_json::to_string(&collector_info)?])
+        .await?;
 
     Ok(())
 }
 
-pub(crate) async fn update_domain(conn: &Connection, domain: DetectedDomain) -> Result<(), DatabaseError> {
+pub(crate) async fn update_domain(
+    conn: &Connection,
+    domain: DetectedDomain,
+) -> Result<(), DatabaseError> {
     let exists = check_exists(conn, &domain.url).await?;
 
     if exists {
@@ -101,7 +120,7 @@ pub(crate) async fn update_domain(conn: &Connection, domain: DetectedDomain) -> 
 
 pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     let exists = check_exists(conn, &domain.url).await?;
-    
+
     if !exists {
         create_domain_row(conn, domain).await?;
 
@@ -109,4 +128,20 @@ pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), 
     } else {
         Err(DatabaseError::RowAlreadyExists)
     }
+}
+
+pub(crate) async fn add_pending_domain(
+    conn: &Connection,
+    domain: DetectedDomain,
+) -> Result<(), DatabaseError> {
+    conn.execute(
+        "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2)",
+        [
+            domain.url.as_str().into_value()?,
+            serde_json::to_string(&domain.collector_info)?.into_value()?,
+        ],
+    )
+    .await?;
+
+    Ok(())
 }

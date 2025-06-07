@@ -1,5 +1,5 @@
-use std::net::{AddrParseError, IpAddr};
 use serde::{Deserialize, Serialize};
+use std::net::{AddrParseError, IpAddr};
 use thiserror::Error;
 use url::{ParseError, Url};
 
@@ -14,14 +14,8 @@ pub(super) mod whois;
 /// Domain info specific to the collector
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DomainCollectorInfo {
-    PhishTank {
-        phish_id: i64,
-        ip: Option<IpAddr>,
-    },
-    PhishStorm {
-        ranking: u32,
-        phishing: bool
-    }
+    PhishTank { phish_id: i64, ip: Option<IpAddr> },
+    PhishStorm { ranking: u32 },
 }
 
 /// A domain that has been detected by one of the collectors, but has not been processed yet into the database format
@@ -29,19 +23,19 @@ pub enum DomainCollectorInfo {
 pub struct DetectedDomain {
     pub url: Url,
     pub collector_info: DomainCollectorInfo,
+    pub phishing: bool,
 }
 
-#[derive(Debug, Error)]                // omit Error if you don’t want Display impls
+#[derive(Debug, Error)] // omit Error if you don’t want Display impls
 pub enum DetectedDomainParseError {
     #[error("URL parse error: {0}")]
-    Url(#[from] ParseError),        // `#[from]` gives automatic `From` impl
+    Url(#[from] ParseError), // `#[from]` gives automatic `From` impl
 
     #[error("address parse error: {0}")]
     Addr(#[from] AddrParseError),
 }
 
 pub trait ToDetectedDomain {
-
     fn to_detected_domain(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError>;
 }
 

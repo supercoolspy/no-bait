@@ -1,15 +1,17 @@
+use super::whois::WhoIsError;
+use crate::collectors::{
+    DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain,
+};
 use flate2::bufread::GzDecoder;
 use log::{debug, error, warn};
 use rayon::prelude::*;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
-use std::io::{Cursor};
+use std::io::Cursor;
 use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
 use url::{ParseError, Url};
-use crate::collectors::{DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain};
-use super::whois::WhoIsError;
 
 pub type PhishTankDataset = Vec<PhishTankDatasetElement>;
 
@@ -100,8 +102,7 @@ fn read_archive_to_data(bytes: bytes::Bytes) -> Result<PhishTankDataset, PhishTa
 
 impl ToDetectedDomain for PhishTankDataset {
     fn to_detected_domain(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
-        self
-            .into_par_iter()
+        self.into_par_iter()
             .filter(|datapoint| datapoint.verified == "yes")
             .map(|domain_info| {
                 debug!("Parsing {}", domain_info.url);
@@ -118,9 +119,11 @@ impl ToDetectedDomain for PhishTankDataset {
                     url,
                     collector_info: DomainCollectorInfo::PhishTank {
                         phish_id: domain_info.phish_id,
-                        ip
-                    }
+                        ip,
+                    },
+                    phishing: true,
                 })
-        }).collect()
+            })
+            .collect()
     }
 }

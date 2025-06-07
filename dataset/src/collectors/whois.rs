@@ -44,8 +44,5 @@ pub(crate) async fn get_whois_domain(whois: &WhoIs, url: Url) -> Result<WhoIsInf
 
     let whois_data = whois_data_res?;
 
-    Ok(WhoIsInfo {
-        url,
-        whois_data,
-    })
+    Ok(WhoIsInfo { url, whois_data })
 }
