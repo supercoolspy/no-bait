@@ -175,6 +175,6 @@ pub(crate) async fn add_pending_domains(
     }
     
     tx.commit().await?;
-    
+
     Ok(())
 }

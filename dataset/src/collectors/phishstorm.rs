@@ -1,15 +1,14 @@
 use rayon::iter::ParallelIterator;
 use std::io::{Cursor, Read};
 
-use crate::collectors::{
-    DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain,
-};
-use log::{debug, info};
+use crate::collectors::{CollectorSpecificInfo, DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain};
+use log::{debug, error, info};
 use rayon::prelude::IntoParallelRefIterator;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use thiserror::Error;
+use url::Url;
 use zip::ZipArchive;
 use crate::database::DatabaseError;
 
@@ -93,14 +92,23 @@ impl ToDetectedDomain for PhishStormDataset {
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.par_iter()
             .map(|d| {
-                debug!("Parsing {}", &d.domain);
+                // We don't know protocol but we can assume
+                // TODO: PhishStorm extra check to see if it has any certificates
+                let url_str = format!("https://{}", d.domain.replace("\'", ""));
+                debug!("Parsing {}", &url_str);
+                let url_res = url_str.parse::<Url>();
+
+                // Due to parallelism it's really hard to tell which domain errored
+                if url_res.is_err() {
+                    error!("Failed to parse {}", d.domain);
+                }
 
                 Ok(DetectedDomain {
-                    // We don't know protocol but we can assume
-                    // TODO: PhishStorm extra check to see if it has any certificates
-                    url: format!("https://{}", d.domain).parse()?,
-                    collector_info: DomainCollectorInfo::PhishStorm { ranking: d.ranking },
-                    phishing: d.label == 1.0,
+                    url: url_res?,
+                    collector_info: DomainCollectorInfo {
+                        collector_specific_info: CollectorSpecificInfo::PhishStorm { ranking: d.ranking },
+                        phishing: d.label == 1.0
+                    }
                 })
             })
             .collect()

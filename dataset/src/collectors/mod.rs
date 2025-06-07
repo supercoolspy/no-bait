@@ -11,9 +11,15 @@ pub(super) mod safebrowsing;
 /// Official Whois Data
 pub(super) mod whois;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct DomainCollectorInfo {
+    pub collector_specific_info: CollectorSpecificInfo,
+    pub phishing: bool,
+}
+
 /// Domain info specific to the collector
 #[derive(Debug, Serialize, Deserialize)]
-pub enum DomainCollectorInfo {
+pub enum CollectorSpecificInfo {
     PhishTank { phish_id: i64, ip: Option<IpAddr> },
     PhishStorm { ranking: u32 },
 }
@@ -23,7 +29,6 @@ pub enum DomainCollectorInfo {
 pub struct DetectedDomain {
     pub url: Url,
     pub collector_info: DomainCollectorInfo,
-    pub phishing: bool,
 }
 
 #[derive(Debug, Error)] // omit Error if you don’t want Display impls

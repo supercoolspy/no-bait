@@ -1,7 +1,5 @@
 use super::whois::WhoIsError;
-use crate::collectors::{
-    DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain,
-};
+use crate::collectors::{CollectorSpecificInfo, DetectedDomain, DetectedDomainParseError, DomainCollectorInfo, ToDetectedDomain};
 use flate2::bufread::GzDecoder;
 use log::{debug, error, warn};
 use rayon::prelude::*;
@@ -121,11 +119,13 @@ impl ToDetectedDomain for PhishTankDataset {
 
                 Ok(DetectedDomain {
                     url,
-                    collector_info: DomainCollectorInfo::PhishTank {
-                        phish_id: domain_info.phish_id,
-                        ip,
+                    collector_info: DomainCollectorInfo {
+                        collector_specific_info: CollectorSpecificInfo::PhishTank {
+                            phish_id: domain_info.phish_id,
+                            ip,
+                        },
+                        phishing: true
                     },
-                    phishing: true,
                 })
             })
             .collect()
