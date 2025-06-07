@@ -2,15 +2,22 @@ use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use libsql::params::IntoValue;
 use libsql::{Builder, Connection};
 use std::path::Path;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
 pub type CollectorColumn = Vec<DomainCollectorInfo>;
 
+#[derive(Debug, Serialize, Deserialize)]
+enum DomainInfo {
+    WhoisInfo(String),
+    RDAPInfo(String),
+}
+
 #[derive(Debug)]
 pub(crate) struct Domain {
     pub(crate) url: Url,
-    pub(crate) whois_info: String,
+    pub(crate) whois_info: DomainInfo,
     pub(crate) collectors: CollectorColumn,
 }
 
@@ -67,7 +74,7 @@ pub(crate) async fn create_domain_row(
         "INSERT INTO domains (url, whois_info, collector_info, phishing) VALUES ($1, $2, $3)",
         [
             domain.url.as_str().to_string(),
-            domain.whois_info,
+            serde_json::to_string(&domain.whois_info)?,
             serde_json::to_string(&vec![domain.collectors])?,
         ],
     )
