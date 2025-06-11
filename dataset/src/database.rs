@@ -10,13 +10,20 @@ use url::Url;
 
 pub type CollectorColumn = Vec<DomainCollectorInfo>;
 
+#[derive(Debug, Clone)]
+pub struct DetectedDomainWithId {
+    pub domain: DetectedDomain,
+    pub row_id: i64,
+}
+
+
 /// Use when cli arguments could change how data is stored
 #[derive(Debug)]
 pub struct DBState {
     conn: Connection,
     db_only: bool,
     /// Pending domains only from this run, None if db_only is true
-    pending_domains: Option<Arc<Mutex<Vec<DetectedDomain>>>>,
+    pending_domains: Option<Arc<Mutex<Vec<DetectedDomainWithId>>>>,
 }
 
 impl DBState {
@@ -36,7 +43,7 @@ impl DBState {
         &self.conn
     }
 
-    pub async fn process_pending_batch(&self, batch_size: usize) -> Vec<DetectedDomain> {
+    pub async fn process_pending_batch(&self, batch_size: usize) -> Vec<DetectedDomainWithId> {
         let pending_domains = self.get_pending_domains();
         let mut domains = pending_domains.lock().await;
         let batch_end = batch_size.min(domains.len());
@@ -57,7 +64,7 @@ impl DBState {
     }
 
     /// Helper function to get pending domains. This will panic if pending domains is None
-    pub fn get_pending_domains(&self) -> &Arc<Mutex<Vec<DetectedDomain>>> {
+    pub fn get_pending_domains(&self) -> &Arc<Mutex<Vec<DetectedDomainWithId>>> {
         self.pending_domains
             .as_ref()
             .expect("Pending domains should exist")
@@ -196,25 +203,32 @@ pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), 
 pub(crate) async fn add_pending_domain(
     db_state: &DBState,
     domain: DetectedDomain,
-) -> Result<(), DatabaseError> {
+) -> Result<i64, DatabaseError> {
     let conn = db_state.get_connection();
 
-    conn.execute(
-        "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2)",
+    let mut rows = conn.query(
+        "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2) RETURNING rowid",
         [
             domain.url.as_str().into_value()?,
             serde_json::to_string(&domain.collector_info)?.into_value()?,
         ],
     )
-    .await?;
+        .await?;
+
+    let row_id = if let Some(row) = rows.next().await? {
+        row.get::<i64>(0)?
+    } else {
+        return Err(DatabaseError::NoRow);
+    };
 
     if !db_state.db_only {
-        let mut memory_domains = db_state.get_pending_domains().lock().await;
-
-        memory_domains.push(domain);
+        db_state.get_pending_domains().lock().await.push(DetectedDomainWithId {
+            domain,
+            row_id,
+        });
     }
 
-    Ok(())
+    Ok(row_id)
 }
 
 pub(crate) async fn add_pending_domains(
@@ -226,10 +240,10 @@ pub(crate) async fn add_pending_domains(
     }
 
     let conn = db_state.get_connection();
-
     let tx = conn.transaction().await?;
+    let mut domains_with_ids = Vec::with_capacity(domains.len());
 
-    for domain in &domains {
+    for domain in domains {
         tx.execute(
             "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2)",
             [
@@ -237,17 +251,23 @@ pub(crate) async fn add_pending_domains(
                 serde_json::to_string(&domain.collector_info)?.into_value()?,
             ],
         )
-        .await?;
+            .await?;
+
+        let row_id = tx.last_insert_rowid();
+        domains_with_ids.push(DetectedDomainWithId {
+            domain,
+            row_id,
+        });
     }
 
     tx.commit().await?;
 
     if !db_state.db_only {
         let mut memory_domains = db_state.get_pending_domains().lock().await;
-
-        memory_domains.reserve(domains.len());
-        memory_domains.extend(domains);
+        memory_domains.reserve(domains_with_ids.len());
+        memory_domains.extend(domains_with_ids);
     }
 
     Ok(())
+
 }
