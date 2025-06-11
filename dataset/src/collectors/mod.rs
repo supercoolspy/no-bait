@@ -11,21 +11,21 @@ pub(super) mod safebrowsing;
 /// Official Whois Data
 pub(super) mod whois;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct DomainCollectorInfo {
     pub collector_specific_info: CollectorSpecificInfo,
     pub phishing: bool,
 }
 
 /// Domain info specific to the collector
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum CollectorSpecificInfo {
     PhishTank { phish_id: i64, ip: Option<IpAddr> },
     PhishStorm { ranking: u32 },
 }
 
 /// A domain that has been detected by one of the collectors, but has not been processed yet into the database format
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DetectedDomain {
     pub url: Url,
     pub collector_info: DomainCollectorInfo,

@@ -1,15 +1,15 @@
-use rayon::iter::ParallelIterator;
-use std::io::{Cursor, Read};
 use crate::collectors::{
     CollectorSpecificInfo, DetectedDomain, DetectedDomainParseError, DomainCollectorInfo,
     ToDetectedDomain,
 };
 use crate::database::DatabaseError;
 use log::{debug, error, info};
+use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefIterator;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
+use std::io::{Cursor, Read};
 use thiserror::Error;
 use url::Url;
 use zip::ZipArchive;

@@ -3,10 +3,66 @@ use libsql::params::IntoValue;
 use libsql::{Builder, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::Arc;
 use thiserror::Error;
+use tokio::sync::Mutex;
 use url::Url;
 
 pub type CollectorColumn = Vec<DomainCollectorInfo>;
+
+/// Use when cli arguments could change how data is stored
+#[derive(Debug)]
+pub struct DBState {
+    conn: Connection,
+    db_only: bool,
+    /// Pending domains only from this run, None if db_only is true
+    pending_domains: Option<Arc<Mutex<Vec<DetectedDomain>>>>,
+}
+
+impl DBState {
+    fn new(conn: Connection, db_only: bool) -> Self {
+        Self {
+            conn,
+            db_only,
+            pending_domains: if db_only {
+                None
+            } else {
+                Some(Arc::new(Mutex::new(Vec::new())))
+            },
+        }
+    }
+
+    pub fn get_connection(&self) -> &Connection {
+        &self.conn
+    }
+
+    pub async fn process_pending_batch(&self, batch_size: usize) -> Vec<DetectedDomain> {
+        let pending_domains = self.get_pending_domains();
+        let mut domains = pending_domains.lock().await;
+        let batch_end = batch_size.min(domains.len());
+        domains.drain(..batch_end).collect()
+    }
+
+    pub async fn get_pending_count(&self) -> usize {
+        if self.pending_domains.is_none() {
+            return 0;
+        }
+
+        self.get_pending_domains().lock().await.len()
+    }
+
+    pub async fn has_pending_domains(&self) -> bool {
+        // Is some check should prevent any
+        self.pending_domains.is_some() && !self.get_pending_domains().lock().await.is_empty()
+    }
+
+    /// Helper function to get pending domains. This will panic if pending domains is None
+    pub fn get_pending_domains(&self) -> &Arc<Mutex<Vec<DetectedDomain>>> {
+        self.pending_domains
+            .as_ref()
+            .expect("Pending domains should exist")
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 enum DomainInfo {
@@ -39,7 +95,7 @@ pub enum DatabaseError {
     RowAlreadyExists,
 }
 
-pub(super) async fn connect_to_db(remote: bool) -> libsql::Result<Connection> {
+pub(super) async fn connect_to_db(remote: bool, db_only: bool) -> libsql::Result<DBState> {
     let db = if remote {
         let url = std::env::var("TURSO_DATABASE_URL").expect("TURSO_DATABASE_URL must be set");
         let token = std::env::var("TURSO_AUTH_TOKEN").expect("TURSO_AUTH_TOKEN must be set");
@@ -48,7 +104,7 @@ pub(super) async fn connect_to_db(remote: bool) -> libsql::Result<Connection> {
         Builder::new_local(Path::new("./phishing.db")).build().await
     }?;
 
-    db.connect()
+    Ok(DBState::new(db.connect()?, db_only))
 }
 
 pub(crate) async fn init_db(conn: &Connection) -> Result<(), DatabaseError> {
@@ -138,9 +194,11 @@ pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), 
 }
 
 pub(crate) async fn add_pending_domain(
-    conn: &Connection,
+    db_state: &DBState,
     domain: DetectedDomain,
 ) -> Result<(), DatabaseError> {
+    let conn = db_state.get_connection();
+
     conn.execute(
         "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2)",
         [
@@ -150,20 +208,28 @@ pub(crate) async fn add_pending_domain(
     )
     .await?;
 
+    if !db_state.db_only {
+        let mut memory_domains = db_state.get_pending_domains().lock().await;
+
+        memory_domains.push(domain);
+    }
+
     Ok(())
 }
 
 pub(crate) async fn add_pending_domains(
-    conn: &Connection,
+    db_state: &DBState,
     domains: Vec<DetectedDomain>,
 ) -> Result<(), DatabaseError> {
     if domains.is_empty() {
         return Ok(());
     }
 
+    let conn = db_state.get_connection();
+
     let tx = conn.transaction().await?;
 
-    for domain in domains {
+    for domain in &domains {
         tx.execute(
             "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2)",
             [
@@ -175,6 +241,13 @@ pub(crate) async fn add_pending_domains(
     }
 
     tx.commit().await?;
+
+    if !db_state.db_only {
+        let mut memory_domains = db_state.get_pending_domains().lock().await;
+
+        memory_domains.reserve(domains.len());
+        memory_domains.extend(domains);
+    }
 
     Ok(())
 }

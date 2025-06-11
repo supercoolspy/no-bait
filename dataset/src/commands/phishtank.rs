@@ -1,8 +1,7 @@
 use crate::collectors::ToDetectedDomain;
 use crate::collectors::phishtank::{PhishTankError, get_data_local, get_latest_data};
-use crate::database::add_pending_domains;
+use crate::database::{DBState, add_pending_domains};
 use clap::Args;
-use libsql::Connection;
 use reqwest_middleware::ClientWithMiddleware;
 
 #[derive(Args, Debug)]
@@ -13,7 +12,7 @@ pub(crate) struct PhishTankCommand {
 
 pub(crate) async fn phishtank_command(
     client: &ClientWithMiddleware,
-    conn: Connection,
+    db_state: DBState,
     command: PhishTankCommand,
     no_analysis: bool,
 ) -> Result<(), PhishTankError> {
@@ -24,7 +23,7 @@ pub(crate) async fn phishtank_command(
     };
 
     if !no_analysis {
-        add_pending_domains(&conn, dataset.to_detected_domains()?).await?;
+        add_pending_domains(&db_state, dataset.to_detected_domains()?).await?;
     }
 
     Ok(())

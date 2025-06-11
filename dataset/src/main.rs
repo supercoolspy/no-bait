@@ -28,6 +28,9 @@ struct Arguments {
     #[arg(short, long, default_value_t = false)]
     no_analysis: bool,
 
+    #[arg(short, long, default_value_t = false)]
+    db_only: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -99,16 +102,17 @@ async fn main() {
     dotenv().expect("Should be able to load environment variables");
     debug!("Loaded environment variables from dotenv");
 
-    let conn = connect_to_db(false)
+    let args = Arguments::parse();
+
+    let db_state = connect_to_db(false, args.db_only)
         .await
         .expect("Should be able to connect to database");
     debug!("Connected to database");
-    init_db(&conn)
+    init_db(db_state.get_connection())
         .await
         .expect("Should be able to init database");
     debug!("Init'd database");
 
-    let args = Arguments::parse();
     match args.command {
         Commands::WhoIs(command) => {
             whois_command(&get_whois_client(), command).await.unwrap();
@@ -120,7 +124,7 @@ async fn main() {
         }
         Commands::PhishTank(command) => phishtank_command(
             &get_reqwest_middleware_client(),
-            conn,
+            db_state,
             command,
             args.no_analysis,
         )
@@ -128,7 +132,7 @@ async fn main() {
         .unwrap(),
         Commands::PhishStorm(command) => phishstorm_command(
             &get_reqwest_middleware_client(),
-            conn,
+            db_state,
             command,
             args.no_analysis,
         )
