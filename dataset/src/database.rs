@@ -11,11 +11,16 @@ use url::Url;
 pub type CollectorColumn = Vec<DomainCollectorInfo>;
 
 #[derive(Debug, Clone)]
+pub struct DomainWithId {
+    pub domain: Domain,
+    pub row_id: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct DetectedDomainWithId {
     pub domain: DetectedDomain,
     pub row_id: i64,
 }
-
 
 /// Use when cli arguments could change how data is stored
 #[derive(Debug)]
@@ -71,13 +76,13 @@ impl DBState {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-enum DomainInfo {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum DomainInfo {
     WhoisInfo(String),
     RDAPInfo(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Domain {
     pub(crate) url: Url,
     pub(crate) whois_info: DomainInfo,
@@ -206,13 +211,14 @@ pub(crate) async fn add_pending_domain(
 ) -> Result<i64, DatabaseError> {
     let conn = db_state.get_connection();
 
-    let mut rows = conn.query(
-        "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2) RETURNING rowid",
-        [
-            domain.url.as_str().into_value()?,
-            serde_json::to_string(&domain.collector_info)?.into_value()?,
-        ],
-    )
+    let mut rows = conn
+        .query(
+            "INSERT INTO pending_domains (url, collector_data) VALUES ($1, $2) RETURNING rowid",
+            [
+                domain.url.as_str().into_value()?,
+                serde_json::to_string(&domain.collector_info)?.into_value()?,
+            ],
+        )
         .await?;
 
     let row_id = if let Some(row) = rows.next().await? {
@@ -222,10 +228,11 @@ pub(crate) async fn add_pending_domain(
     };
 
     if !db_state.db_only {
-        db_state.get_pending_domains().lock().await.push(DetectedDomainWithId {
-            domain,
-            row_id,
-        });
+        db_state
+            .get_pending_domains()
+            .lock()
+            .await
+            .push(DetectedDomainWithId { domain, row_id });
     }
 
     Ok(row_id)
@@ -251,13 +258,10 @@ pub(crate) async fn add_pending_domains(
                 serde_json::to_string(&domain.collector_info)?.into_value()?,
             ],
         )
-            .await?;
+        .await?;
 
         let row_id = tx.last_insert_rowid();
-        domains_with_ids.push(DetectedDomainWithId {
-            domain,
-            row_id,
-        });
+        domains_with_ids.push(DetectedDomainWithId { domain, row_id });
     }
 
     tx.commit().await?;
@@ -269,5 +273,4 @@ pub(crate) async fn add_pending_domains(
     }
 
     Ok(())
-
 }

@@ -1,5 +1,6 @@
 mod collectors;
 mod commands;
+mod converter;
 mod database;
 use crate::database::init_db;
 use clap::{Parser, Subcommand, arg};

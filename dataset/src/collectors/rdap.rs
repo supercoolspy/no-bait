@@ -32,16 +32,15 @@ pub enum RDAPError {
 
 /// Per most registry's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
 pub(crate) async fn get_rdap_data(
-    rdap_client: icann_rdap_client::http::Client,
-    store: impl BootstrapStore,
+    rdap_client: &icann_rdap_client::http::Client,
+    store: &impl BootstrapStore,
     url: Url,
 ) -> Result<RdapResponse, RDAPError> {
     let query = QueryType::from_str(url.domain().ok_or(RDAPError::NoRoot(url.clone()))?)?;
 
-    let response = rdap_bootstrapped_request(&query, &rdap_client, &store, |reg| {
-        debug!("fetching {reg:?}")
-    })
-    .await?;
+    let response =
+        rdap_bootstrapped_request(&query, rdap_client, store, |reg| debug!("fetching {reg:?}"))
+            .await?;
 
     if let RdapResponse::Domain(domain) = response.rdap {
         let links = domain.links();
