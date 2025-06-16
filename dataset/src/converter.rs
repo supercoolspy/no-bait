@@ -58,8 +58,9 @@ async fn check_domains_exist(
     // Process the results to populate add and modify vectors
     for result in results.into_iter().flatten() {
         // result is already of type (bool, DetectedDomainWithId) after flattening
-        let (exists, d) = result;
-        if exists {
+        let (row, d) = result;
+        // May be good in future to use the row, although it could be updated by the time we process it
+        if row.is_some() {
             modify.push(d);
         } else {
             add.push(d);

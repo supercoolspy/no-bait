@@ -1,6 +1,8 @@
+use std::any::Any;
+use std::mem::discriminant;
 use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use libsql::params::IntoValue;
-use libsql::{Builder, Connection};
+use libsql::{Builder, Connection, Row};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -159,19 +161,20 @@ pub(crate) async fn init_db(conn: &Connection) -> Result<(), DatabaseError> {
     Ok(())
 }
 
-/// Check whether a url exists in the Domains table
-pub(crate) async fn check_exists(conn: &Connection, url: &Url) -> Result<bool, DatabaseError> {
-    let rows = conn
-        .query("SELECT url from domains WHERE url = $1", &[url.as_str()])
+/// Check whether a url exists in the Domains table and returns the Row object if it does.
+/// This prevents an extra call to get the domain info after the fact for pre-exising rows.
+pub(crate) async fn check_exists(conn: &Connection, url: &Url) -> Result<Option<Row>, DatabaseError> {
+    let mut rows = conn
+        .query("SELECT * from domains WHERE url = $1", &[url.as_str()])
         .await?;
 
-    Ok(rows.column_name(0).is_some())
+    Ok(rows.next().await?)
 }
 
 /// Create a domain row, will error if the row already exists
 async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     conn.execute(
-        "INSERT INTO domains (url, whois_info, collector_info, phishing) VALUES ($1, $2, $3)",
+        "INSERT INTO domains (url, whois_info, collector_info) VALUES ($1, $2, $3)",
         [
             domain.url.as_str().to_string(),
             serde_json::to_string(&domain.whois_info)?,
@@ -184,27 +187,18 @@ async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), Data
 }
 
 /// Update a domain row, will error if the row doesn't exist
-async fn update_domain_row(conn: &Connection, domain: DetectedDomain) -> Result<(), DatabaseError> {
-    let mut rows = conn
-        .query(
-            "SELECT collector_info from domains WHERE url = $1",
-            &[domain.url.as_str()],
-        )
-        .await?;
+async fn update_domain_row(conn: &Connection, domain: DetectedDomain, mut collectors: Vec<DomainCollectorInfo>) -> Result<(), DatabaseError> {
+    let existing_index = collectors.iter().position(|collector| discriminant(&collector.collector_specific_info) == discriminant(&domain.collector_info.collector_specific_info));
 
-    let row = rows.next().await?.ok_or(DatabaseError::NoRow)?;
+    if let Some(existing_index) = existing_index {
+        collectors.swap_remove(existing_index);
 
-    let column = row.get_value(0)?;
-
-    let collector_info_str = column.as_text().ok_or(DatabaseError::ColumnConvert)?;
-
-    let mut collector_info: CollectorColumn = serde_json::from_str(collector_info_str)?;
-
-    collector_info.push(domain.collector_info);
+        collectors.push(domain.collector_info);
+    };
 
     conn.prepare("UPDATE domains SET collector_info=$2 WHERE url = $1")
         .await?
-        .execute([serde_json::to_string(&collector_info)?])
+        .execute([serde_json::to_string(&collectors)?])
         .await?;
 
     Ok(())
@@ -215,10 +209,16 @@ pub(crate) async fn update_domain(
     conn: &Connection,
     domain: DetectedDomain,
 ) -> Result<(), DatabaseError> {
-    let exists = check_exists(conn, &domain.url).await?;
+    let row = check_exists(conn, &domain.url).await?;
 
-    if exists {
-        update_domain_row(conn, domain).await
+    if row.is_some() {
+        let row  = row.unwrap();
+
+        let collectors_str = row.get::<String>(2)?;
+
+        let collectors: CollectorColumn = serde_json::from_str(&collectors_str)?;
+
+        update_domain_row(conn, domain, collectors).await
     } else {
         Err(DatabaseError::NoRow)
     }
@@ -226,7 +226,7 @@ pub(crate) async fn update_domain(
 
 /// Add a domain, returns DatabaseError::RowAlreadyExists if the row already exists
 pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
-    let exists = check_exists(conn, &domain.url).await?;
+    let exists = check_exists(conn, &domain.url).await?.is_some();
 
     if !exists {
         create_domain_row(conn, domain).await?;
@@ -345,8 +345,8 @@ async fn get_pending_from_db(
             row_id,
         })
     }).collect::<Vec<Result<DetectedDomainWithId, DatabaseError>>>().await;
-    
-    
+
+
 
     Ok(results.into_iter().filter_map(|domain_res| {
         if domain_res.is_err() {
@@ -368,22 +368,22 @@ pub(crate) async fn get_pending_domains(
 ) -> Result<Vec<DetectedDomainWithId>, DatabaseError> {
     if db_state.db_only {
         get_pending_from_db(db_state.get_connection(), amount).await
-    } else { 
+    } else {
         let pending_in_memory = db_state.get_pending_count().await;
-        
+
         if pending_in_memory < amount as usize {
             let amount_from_db = pending_in_memory - amount as usize;
-            
+
             let mut pending_domains = db_state.process_pending_batch(amount as usize).await;
 
             let mut from_db = get_pending_from_db(db_state.get_connection(), amount_from_db as u64).await?;
 
             pending_domains.append(&mut from_db);
             drop(from_db);
-            
+
             return Ok(pending_domains)
         }
-        
+
         Ok(db_state.process_pending_batch(amount as usize).await)
     }
 }
