@@ -1,17 +1,16 @@
-use std::any::Any;
-use std::mem::discriminant;
 use crate::collectors::{DetectedDomain, DomainCollectorInfo};
+use futures::StreamExt;
 use libsql::params::IntoValue;
 use libsql::{Builder, Connection, Row};
+use log::error;
 use serde::{Deserialize, Serialize};
+use std::mem::discriminant;
 use std::path::Path;
 use std::sync::Arc;
-use futures::StreamExt;
-use log::error;
 use thiserror::Error;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::error::SendError;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{Mutex, mpsc};
 use url::Url;
 
 pub type CollectorColumn = Vec<DomainCollectorInfo>;
@@ -38,7 +37,7 @@ pub struct DBState {
     /// Channel sender for the amount of pending domains added to the db/in-memory map
     channel_sender: Sender<usize>,
     /// Channel receiver for the amount of pending domains added to the db/in-memory map
-    channel_receiver: Receiver<usize>
+    channel_receiver: Receiver<usize>,
 }
 
 impl DBState {
@@ -56,7 +55,7 @@ impl DBState {
                 Some(Arc::new(Mutex::new(Vec::new())))
             },
             channel_sender: tx,
-            channel_receiver: rx
+            channel_receiver: rx,
         }
     }
 
@@ -176,7 +175,10 @@ pub(crate) async fn init_db(conn: &Connection) -> Result<(), DatabaseError> {
 
 /// Check whether a url exists in the Domains table and returns the Row object if it does.
 /// This prevents an extra call to get the domain info after the fact for pre-exising rows.
-pub(crate) async fn check_exists(conn: &Connection, url: &Url) -> Result<Option<Row>, DatabaseError> {
+pub(crate) async fn check_exists(
+    conn: &Connection,
+    url: &Url,
+) -> Result<Option<Row>, DatabaseError> {
     let mut rows = conn
         .query("SELECT * from domains WHERE url = $1", &[url.as_str()])
         .await?;
@@ -200,8 +202,15 @@ async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), Data
 }
 
 /// Update a domain row, will error if the row doesn't exist
-async fn update_domain_row(conn: &Connection, domain: DetectedDomain, mut collectors: Vec<DomainCollectorInfo>) -> Result<(), DatabaseError> {
-    let existing_index = collectors.iter().position(|collector| discriminant(&collector.collector_specific_info) == discriminant(&domain.collector_info.collector_specific_info));
+async fn update_domain_row(
+    conn: &Connection,
+    domain: DetectedDomain,
+    mut collectors: Vec<DomainCollectorInfo>,
+) -> Result<(), DatabaseError> {
+    let existing_index = collectors.iter().position(|collector| {
+        discriminant(&collector.collector_specific_info)
+            == discriminant(&domain.collector_info.collector_specific_info)
+    });
 
     if let Some(existing_index) = existing_index {
         collectors.swap_remove(existing_index);
@@ -225,7 +234,7 @@ pub(crate) async fn update_domain(
     let row = check_exists(conn, &domain.url).await?;
 
     if row.is_some() {
-        let row  = row.unwrap();
+        let row = row.unwrap();
 
         let collectors_str = row.get::<String>(2)?;
 
@@ -294,7 +303,7 @@ pub(crate) async fn add_pending_domains(
     if domains.is_empty() {
         return Ok(());
     }
-    
+
     let domains_len = domains.len();
 
     let conn = db_state.get_connection();
@@ -331,7 +340,7 @@ pub(crate) async fn add_pending_domains(
 /// Get at max some amount of pending domains from the pending domains table
 async fn get_pending_from_db(
     conn: &Connection,
-    amount: u64
+    amount: u64,
 ) -> Result<Vec<DetectedDomainWithId>, DatabaseError> {
     let rows = conn
         .query(
@@ -340,50 +349,55 @@ async fn get_pending_from_db(
         )
         .await?;
 
-    let results = rows.into_stream().filter_map(|row| async move {
-        if row.is_err() {
-            error!("Failed to get row: {}", row.err().unwrap());
-            return None;
-        }
+    let results = rows
+        .into_stream()
+        .filter_map(|row| async move {
+            if row.is_err() {
+                error!("Failed to get row: {}", row.err().unwrap());
+                return None;
+            }
 
-        row.ok()
-    }).map(|row| {
-        let row_id = row.get::<i64>(0)?;
-        let url_str = row.get::<String>(1)?;
-        let collector_data = row.get::<String>(2)?;
-
-        let url = Url::parse(&url_str)?;
-        let collector_info: DomainCollectorInfo = serde_json::from_str(&collector_data)?;
-
-
-        Ok::<DetectedDomainWithId, DatabaseError>(DetectedDomainWithId {
-            domain: DetectedDomain {
-                url,
-                collector_info,
-            },
-            row_id,
+            row.ok()
         })
-    }).collect::<Vec<Result<DetectedDomainWithId, DatabaseError>>>().await;
+        .map(|row| {
+            let row_id = row.get::<i64>(0)?;
+            let url_str = row.get::<String>(1)?;
+            let collector_data = row.get::<String>(2)?;
 
+            let url = Url::parse(&url_str)?;
+            let collector_info: DomainCollectorInfo = serde_json::from_str(&collector_data)?;
 
+            Ok::<DetectedDomainWithId, DatabaseError>(DetectedDomainWithId {
+                domain: DetectedDomain {
+                    url,
+                    collector_info,
+                },
+                row_id,
+            })
+        })
+        .collect::<Vec<Result<DetectedDomainWithId, DatabaseError>>>()
+        .await;
 
-    Ok(results.into_iter().filter_map(|domain_res| {
-        if domain_res.is_err() {
-            let err = domain_res.err().unwrap();
+    Ok(results
+        .into_iter()
+        .filter_map(|domain_res| {
+            if domain_res.is_err() {
+                let err = domain_res.err().unwrap();
 
-            error!("Failed to get row: {}", err);
+                error!("Failed to get row: {}", err);
 
-            None
-        } else {
-            domain_res.ok()
-        }
-    }).collect())
+                None
+            } else {
+                domain_res.ok()
+            }
+        })
+        .collect())
 }
 
 /// Get pending domains from db, memory, or both depending on settings
 pub(crate) async fn get_pending_domains(
     db_state: &mut DBState,
-    amount: u64
+    amount: u64,
 ) -> Result<Vec<DetectedDomainWithId>, DatabaseError> {
     if db_state.db_only {
         get_pending_from_db(db_state.get_connection(), amount).await
@@ -395,12 +409,13 @@ pub(crate) async fn get_pending_domains(
 
             let mut pending_domains = db_state.process_pending_batch(amount as usize).await;
 
-            let mut from_db = get_pending_from_db(db_state.get_connection(), amount_from_db as u64).await?;
+            let mut from_db =
+                get_pending_from_db(db_state.get_connection(), amount_from_db as u64).await?;
 
             pending_domains.append(&mut from_db);
             drop(from_db);
 
-            return Ok(pending_domains)
+            return Ok(pending_domains);
         }
 
         Ok(db_state.process_pending_batch(amount as usize).await)

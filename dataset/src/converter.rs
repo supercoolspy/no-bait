@@ -1,5 +1,5 @@
 use crate::collectors::rdap::{RDAPError, get_rdap_data};
-use crate::collectors::whois::{WhoIsError, WhoIsInfo, get_whois_domain};
+use crate::collectors::whois::{WhoIsError, get_whois_domain};
 use crate::database::{
     DBState, DatabaseError, DetectedDomainWithId, Domain, DomainInfo, DomainWithId, add_domain,
     check_exists, update_domain,
