@@ -9,7 +9,9 @@ use std::sync::Arc;
 use futures::StreamExt;
 use log::error;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc::error::SendError;
 use url::Url;
 
 pub type CollectorColumn = Vec<DomainCollectorInfo>;
@@ -33,12 +35,18 @@ pub struct DBState {
     db_only: bool,
     /// Pending domains only from this run, None if db_only is true
     pending_domains: Option<Arc<Mutex<Vec<DetectedDomainWithId>>>>,
+    /// Channel sender for the amount of pending domains added to the db/in-memory map
+    channel_sender: Sender<usize>,
+    /// Channel receiver for the amount of pending domains added to the db/in-memory map
+    channel_receiver: Receiver<usize>
 }
 
 impl DBState {
     /// Create a new Database State object.
     /// Should only be called once.
     fn new(conn: Connection, db_only: bool) -> Self {
+        let (tx, rx): (Sender<usize>, Receiver<usize>) = mpsc::channel(5);
+
         Self {
             conn,
             db_only,
@@ -47,6 +55,8 @@ impl DBState {
             } else {
                 Some(Arc::new(Mutex::new(Vec::new())))
             },
+            channel_sender: tx,
+            channel_receiver: rx
         }
     }
 
@@ -123,6 +133,9 @@ pub enum DatabaseError {
 
     #[error("Url Parse Error: {0}")]
     UrlParse(#[from] url::ParseError),
+
+    #[error("Channel Send Error: {0}")]
+    ChannelSend(#[from] SendError<usize>),
 
     #[error("No Row where there should be one")]
     NoRow,
@@ -268,6 +281,8 @@ pub(crate) async fn add_pending_domain(
             .push(DetectedDomainWithId { domain, row_id });
     }
 
+    db_state.channel_sender.send(1).await?;
+
     Ok(row_id)
 }
 
@@ -279,10 +294,12 @@ pub(crate) async fn add_pending_domains(
     if domains.is_empty() {
         return Ok(());
     }
+    
+    let domains_len = domains.len();
 
     let conn = db_state.get_connection();
     let tx = conn.transaction().await?;
-    let mut domains_with_ids = Vec::with_capacity(domains.len());
+    let mut domains_with_ids = Vec::with_capacity(domains_len);
 
     for domain in domains {
         tx.execute(
@@ -305,6 +322,8 @@ pub(crate) async fn add_pending_domains(
         memory_domains.reserve(domains_with_ids.len());
         memory_domains.extend(domains_with_ids);
     }
+
+    db_state.channel_sender.send(domains_len).await?;
 
     Ok(())
 }
