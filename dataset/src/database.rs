@@ -89,6 +89,21 @@ pub(crate) struct Domain {
     pub(crate) collectors: CollectorColumn,
 }
 
+impl TryInto<DetectedDomain> for Domain {
+    type Error = DatabaseError;
+
+    fn try_into(self) -> Result<DetectedDomain, Self::Error> {
+        Ok(DetectedDomain {
+            url: self.url,
+            collector_info: self
+                .collectors
+                .first()
+                .ok_or(Self::Error::NoCollectorFound)?
+                .clone(),
+        })
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum DatabaseError {
     #[error("LibSQL Error: {0}")]
@@ -105,6 +120,9 @@ pub enum DatabaseError {
 
     #[error("Row Already Exists")]
     RowAlreadyExists,
+
+    #[error("No Collector Found")]
+    NoCollectorFound,
 }
 
 pub(super) async fn connect_to_db(remote: bool, db_only: bool) -> libsql::Result<DBState> {
@@ -134,10 +152,7 @@ pub(crate) async fn check_exists(conn: &Connection, url: &Url) -> Result<bool, D
     Ok(rows.column_name(0).is_some())
 }
 
-pub(crate) async fn create_domain_row(
-    conn: &Connection,
-    domain: Domain,
-) -> Result<(), DatabaseError> {
+async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     conn.execute(
         "INSERT INTO domains (url, whois_info, collector_info, phishing) VALUES ($1, $2, $3)",
         [
@@ -151,10 +166,7 @@ pub(crate) async fn create_domain_row(
     Ok(())
 }
 
-pub(crate) async fn update_domain_row(
-    conn: &Connection,
-    domain: DetectedDomain,
-) -> Result<(), DatabaseError> {
+async fn update_domain_row(conn: &Connection, domain: DetectedDomain) -> Result<(), DatabaseError> {
     let mut rows = conn
         .query(
             "SELECT collector_info from domains WHERE url = $1",
