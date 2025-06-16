@@ -34,6 +34,8 @@ pub struct DBState {
 }
 
 impl DBState {
+    /// Create a new Database State object.
+    /// Should only be called once.
     fn new(conn: Connection, db_only: bool) -> Self {
         Self {
             conn,
@@ -46,10 +48,12 @@ impl DBState {
         }
     }
 
+    /// Get the raw connection object for the database
     pub fn get_connection(&self) -> &Connection {
         &self.conn
     }
 
+    /// Get min(batch_size, length) pending domains from the in-memory pending domains list
     async fn process_pending_batch(&mut self, batch_size: usize) -> Vec<DetectedDomainWithId> {
         let pending_domains = self.get_pending_domains();
         let mut domains = pending_domains.lock().await;
@@ -57,6 +61,7 @@ impl DBState {
         domains.drain(..batch_end).collect()
     }
 
+    /// Get the amount of pending domains in memory
     pub async fn get_pending_count(&self) -> usize {
         if self.pending_domains.is_none() {
             return 0;
@@ -65,6 +70,7 @@ impl DBState {
         self.get_pending_domains().lock().await.len()
     }
 
+    /// Check if in memory pending domains in enabled
     pub async fn has_pending_domains(&self) -> bool {
         // Is some check should prevent any
         self.pending_domains.is_some() && !self.get_pending_domains().lock().await.is_empty()
@@ -78,12 +84,14 @@ impl DBState {
     }
 }
 
+/// Domain info from registry/registrar whois/rdap service
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum DomainInfo {
     WhoisInfo(String),
     RDAPInfo(String),
 }
 
+/// A processed domain that can be added to the training set
 #[derive(Debug, Clone)]
 pub(crate) struct Domain {
     pub(crate) url: Url,
@@ -130,6 +138,7 @@ pub enum DatabaseError {
     NoCollectorFound,
 }
 
+/// Connect to the database and return a DBState object
 pub(super) async fn connect_to_db(remote: bool, db_only: bool) -> libsql::Result<DBState> {
     let db = if remote {
         let url = std::env::var("TURSO_DATABASE_URL").expect("TURSO_DATABASE_URL must be set");
@@ -142,6 +151,7 @@ pub(super) async fn connect_to_db(remote: bool, db_only: bool) -> libsql::Result
     Ok(DBState::new(db.connect()?, db_only))
 }
 
+/// Create the initial database tables for the program to function
 pub(crate) async fn init_db(conn: &Connection) -> Result<(), DatabaseError> {
     conn.execute(include_str!("../assets/dataset_table.sql"), ())
         .await?;
@@ -149,6 +159,7 @@ pub(crate) async fn init_db(conn: &Connection) -> Result<(), DatabaseError> {
     Ok(())
 }
 
+/// Check whether a url exists in the Domains table
 pub(crate) async fn check_exists(conn: &Connection, url: &Url) -> Result<bool, DatabaseError> {
     let rows = conn
         .query("SELECT url from domains WHERE url = $1", &[url.as_str()])
@@ -157,6 +168,7 @@ pub(crate) async fn check_exists(conn: &Connection, url: &Url) -> Result<bool, D
     Ok(rows.column_name(0).is_some())
 }
 
+/// Create a domain row, will error if the row already exists
 async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     conn.execute(
         "INSERT INTO domains (url, whois_info, collector_info, phishing) VALUES ($1, $2, $3)",
@@ -171,6 +183,7 @@ async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), Data
     Ok(())
 }
 
+/// Update a domain row, will error if the row doesn't exist
 async fn update_domain_row(conn: &Connection, domain: DetectedDomain) -> Result<(), DatabaseError> {
     let mut rows = conn
         .query(
@@ -197,6 +210,7 @@ async fn update_domain_row(conn: &Connection, domain: DetectedDomain) -> Result<
     Ok(())
 }
 
+/// Update a domain, returns DatabaseError::NoRow if the row doesn't exist
 pub(crate) async fn update_domain(
     conn: &Connection,
     domain: DetectedDomain,
@@ -210,6 +224,7 @@ pub(crate) async fn update_domain(
     }
 }
 
+/// Add a domain, returns DatabaseError::RowAlreadyExists if the row already exists
 pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     let exists = check_exists(conn, &domain.url).await?;
 
@@ -222,6 +237,7 @@ pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), 
     }
 }
 
+/// Add a pending domain to the pending domains table
 pub(crate) async fn add_pending_domain(
     db_state: &DBState,
     domain: DetectedDomain,
@@ -255,6 +271,7 @@ pub(crate) async fn add_pending_domain(
     Ok(row_id)
 }
 
+/// Add a Vec of pending domains to the pending domains table
 pub(crate) async fn add_pending_domains(
     db_state: &DBState,
     domains: Vec<DetectedDomain>,
@@ -292,6 +309,7 @@ pub(crate) async fn add_pending_domains(
     Ok(())
 }
 
+/// Get at max some amount of pending domains from the pending domains table
 async fn get_pending_from_db(
     conn: &Connection,
     amount: u64
@@ -343,6 +361,7 @@ async fn get_pending_from_db(
     }).collect())
 }
 
+/// Get pending domains from db, memory, or both depending on settings
 pub(crate) async fn get_pending_domains(
     db_state: &mut DBState,
     amount: u64
@@ -350,6 +369,21 @@ pub(crate) async fn get_pending_domains(
     if db_state.db_only {
         get_pending_from_db(db_state.get_connection(), amount).await
     } else { 
+        let pending_in_memory = db_state.get_pending_count().await;
+        
+        if pending_in_memory < amount as usize {
+            let amount_from_db = pending_in_memory - amount as usize;
+            
+            let mut pending_domains = db_state.process_pending_batch(amount as usize).await;
+
+            let mut from_db = get_pending_from_db(db_state.get_connection(), amount_from_db as u64).await?;
+
+            pending_domains.append(&mut from_db);
+            drop(from_db);
+            
+            return Ok(pending_domains)
+        }
+        
         Ok(db_state.process_pending_batch(amount as usize).await)
     }
 }
