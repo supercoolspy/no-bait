@@ -48,7 +48,7 @@ impl DBState {
         &self.conn
     }
 
-    pub async fn process_pending_batch(&self, batch_size: usize) -> Vec<DetectedDomainWithId> {
+    pub async fn process_pending_batch(&mut self, batch_size: usize) -> Vec<DetectedDomainWithId> {
         let pending_domains = self.get_pending_domains();
         let mut domains = pending_domains.lock().await;
         let batch_end = batch_size.min(domains.len());
