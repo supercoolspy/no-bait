@@ -10,8 +10,6 @@ use icann_rdap_client::iana::BootstrapStore;
 use libsql::Connection;
 use log::error;
 use rayon::prelude::*;
-use std::cmp::PartialEq;
-use std::iter::FilterMap;
 use thiserror::Error;
 use url::Url;
 use whois_rust::WhoIs;
@@ -191,6 +189,7 @@ pub async fn convert_domains_from_memory(
 
     let (add, modify) = check_domains_exist(conn, domains).await?;
 
+    // Attempt to add new domains to the db
     let add_domain_results = add_domains_to_db(
         conn,
         get_info_for_domains(add, whois_client, rdap_client, store).await?,

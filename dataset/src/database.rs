@@ -4,6 +4,8 @@ use libsql::{Builder, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+use futures::StreamExt;
+use log::error;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
@@ -48,7 +50,7 @@ impl DBState {
         &self.conn
     }
 
-    pub async fn process_pending_batch(&mut self, batch_size: usize) -> Vec<DetectedDomainWithId> {
+    async fn process_pending_batch(&mut self, batch_size: usize) -> Vec<DetectedDomainWithId> {
         let pending_domains = self.get_pending_domains();
         let mut domains = pending_domains.lock().await;
         let batch_end = batch_size.min(domains.len());
@@ -108,6 +110,9 @@ impl TryInto<DetectedDomain> for Domain {
 pub enum DatabaseError {
     #[error("LibSQL Error: {0}")]
     LibSQLError(#[from] libsql::Error),
+
+    #[error("Url Parse Error: {0}")]
+    UrlParse(#[from] url::ParseError),
 
     #[error("No Row where there should be one")]
     NoRow,
@@ -285,4 +290,66 @@ pub(crate) async fn add_pending_domains(
     }
 
     Ok(())
+}
+
+async fn get_pending_from_db(
+    conn: &Connection,
+    amount: u64
+) -> Result<Vec<DetectedDomainWithId>, DatabaseError> {
+    let rows = conn
+        .query(
+            "SELECT rowid, url, collector_data FROM pending_domains LIMIT $1",
+            &[amount],
+        )
+        .await?;
+
+    let results = rows.into_stream().filter_map(|row| async move {
+        if row.is_err() {
+            error!("Failed to get row: {}", row.err().unwrap());
+            return None;
+        }
+
+        row.ok()
+    }).map(|row| {
+        let row_id = row.get::<i64>(0)?;
+        let url_str = row.get::<String>(1)?;
+        let collector_data = row.get::<String>(2)?;
+
+        let url = Url::parse(&url_str)?;
+        let collector_info: DomainCollectorInfo = serde_json::from_str(&collector_data)?;
+
+
+        Ok::<DetectedDomainWithId, DatabaseError>(DetectedDomainWithId {
+            domain: DetectedDomain {
+                url,
+                collector_info,
+            },
+            row_id,
+        })
+    }).collect::<Vec<Result<DetectedDomainWithId, DatabaseError>>>().await;
+    
+    
+
+    Ok(results.into_iter().filter_map(|domain_res| {
+        if domain_res.is_err() {
+            let err = domain_res.err().unwrap();
+
+            error!("Failed to get row: {}", err);
+
+            None
+        } else {
+            domain_res.ok()
+        }
+    }).collect())
+}
+
+pub(crate) async fn get_pending_domains(
+    db_state: &mut DBState,
+    amount: u64
+) -> Result<Vec<DetectedDomainWithId>, DatabaseError> {
+    if db_state.db_only {
+        get_pending_from_db(db_state.get_connection(), amount).await
+    } else { 
+        Ok(db_state.process_pending_batch(amount as usize).await)
+    }
 }
