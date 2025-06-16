@@ -65,7 +65,7 @@ impl DBState {
     }
 
     /// Get min(batch_size, length) pending domains from the in-memory pending domains list
-    async fn process_pending_batch(&mut self, batch_size: usize) -> Vec<DetectedDomainWithId> {
+    async fn process_pending_batch(&self, batch_size: usize) -> Vec<DetectedDomainWithId> {
         let pending_domains = self.get_pending_domains();
         let mut domains = pending_domains.lock().await;
         let batch_end = batch_size.min(domains.len());
