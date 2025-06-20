@@ -7,6 +7,7 @@ use crate::database::{
 use futures::StreamExt;
 use futures::stream::iter;
 use icann_rdap_client::iana::BootstrapStore;
+use icann_rdap_client::prelude::MemoryBootstrapStore;
 use libsql::Connection;
 use log::error;
 use rayon::prelude::*;
@@ -31,7 +32,7 @@ pub enum ConverterError {
 async fn check_domains_exist(
     conn: &Connection,
     domains: Vec<DetectedDomainWithId>,
-) -> Result<(Vec<DetectedDomainWithId>, Vec<DetectedDomainWithId>), ConverterError> {
+) -> (Vec<DetectedDomainWithId>, Vec<DetectedDomainWithId>) {
     let mut add = Vec::new();
     let mut modify = Vec::new();
 
@@ -67,19 +68,16 @@ async fn check_domains_exist(
         }
     }
 
-    Ok((add, modify))
+    (add, modify)
 }
 
 /// Gets whois/rdap info for a set of domains with id, and returns an Iterator over them
 async fn get_info_for_domains(
     domains: Vec<DetectedDomainWithId>,
     whois_client: &WhoIs,
-    rdap_client: icann_rdap_client::http::Client,
-    store: impl BootstrapStore,
-) -> Result<impl Iterator<Item = DomainWithId>, ConverterError> {
-    let rdap_client = &rdap_client;
-    let store = &store;
-
+    rdap_client: &icann_rdap_client::http::Client,
+    store: &impl BootstrapStore,
+) -> impl Iterator<Item = DomainWithId> {
     // Add whois/rdap info to domains that aren't already in the database
     let domains_to_add = iter(domains.into_iter())
         .map(|domain| async move {
@@ -134,7 +132,7 @@ async fn get_info_for_domains(
         .collect::<Vec<_>>()
         .await;
 
-    Ok(domains_to_add.into_iter())
+    domains_to_add.into_iter()
 }
 
 /// Takes in a list of domains, attempts to add them to the database.
@@ -179,21 +177,21 @@ async fn add_domains_to_db(
 /// Processes a batch of domains into the database and returns the rowIds of the domains to delete.
 /// If adding a domain to the database fails for any reason, the rowId will not be returned.
 /// <u>**Only**</u> rowIds that are returned from this function should be removed from the database.
-pub async fn convert_domains_from_memory(
-    db_state: DBState,
+pub async fn convert_domains(
+    db_state: &DBState,
     whois_client: &WhoIs,
-    rdap_client: icann_rdap_client::http::Client,
-    store: impl BootstrapStore,
+    rdap_client: &icann_rdap_client::http::Client,
+    store: &MemoryBootstrapStore,
     domains: Vec<DetectedDomainWithId>,
-) -> Result<Vec<i64>, ConverterError> {
+) -> Vec<i64> {
     let conn = db_state.get_connection();
 
-    let (add, modify) = check_domains_exist(conn, domains).await?;
+    let (add, modify) = check_domains_exist(conn, domains).await;
 
     // Attempt to add new domains to the db
     let add_domain_results = add_domains_to_db(
         conn,
-        get_info_for_domains(add, whois_client, rdap_client, store).await?,
+        get_info_for_domains(add, whois_client, rdap_client, store).await,
     )
     .await;
 
@@ -234,5 +232,5 @@ pub async fn convert_domains_from_memory(
     rows_to_delete.append(&mut modified_rows_to_delete);
     drop(modified_rows_to_delete);
 
-    Ok(rows_to_delete)
+    rows_to_delete
 }

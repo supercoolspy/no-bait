@@ -12,7 +12,7 @@ pub(crate) struct PhishStormCommand {
 
 pub(crate) async fn phishstorm_command(
     client: &ClientWithMiddleware,
-    db_state: DBState,
+    db_state: &DBState,
     command: PhishStormCommand,
     no_analysis: bool,
 ) -> Result<(), PhishStormError> {
@@ -23,7 +23,7 @@ pub(crate) async fn phishstorm_command(
     };
 
     if !no_analysis {
-        add_pending_domains(&db_state, dataset.to_detected_domains()?).await?;
+        add_pending_domains(db_state, dataset.to_detected_domains()?).await?;
     }
 
     Ok(())

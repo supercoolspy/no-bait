@@ -12,7 +12,7 @@ pub(crate) struct PhishTankCommand {
 
 pub(crate) async fn phishtank_command(
     client: &ClientWithMiddleware,
-    db_state: DBState,
+    db_state: &DBState,
     command: PhishTankCommand,
     no_analysis: bool,
 ) -> Result<(), PhishTankError> {
@@ -23,7 +23,7 @@ pub(crate) async fn phishtank_command(
     };
 
     if !no_analysis {
-        add_pending_domains(&db_state, dataset.to_detected_domains()?).await?;
+        add_pending_domains(db_state, dataset.to_detected_domains()?).await?;
     }
 
     Ok(())

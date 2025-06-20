@@ -2,7 +2,7 @@ use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use futures::StreamExt;
 use libsql::params::IntoValue;
 use libsql::{Builder, Connection, Row};
-use log::error;
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use std::mem::discriminant;
 use std::path::Path;
@@ -28,7 +28,7 @@ pub struct DetectedDomainWithId {
 }
 
 /// Use when cli arguments could change how data is stored
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DBState {
     conn: Connection,
     db_only: bool,
@@ -36,27 +36,27 @@ pub struct DBState {
     pending_domains: Option<Arc<Mutex<Vec<DetectedDomainWithId>>>>,
     /// Channel sender for the amount of pending domains added to the db/in-memory map
     channel_sender: Sender<usize>,
-    /// Channel receiver for the amount of pending domains added to the db/in-memory map
-    channel_receiver: Receiver<usize>,
 }
 
 impl DBState {
     /// Create a new Database State object.
     /// Should only be called once.
-    fn new(conn: Connection, db_only: bool) -> Self {
+    fn new(conn: Connection, db_only: bool) -> (Self, Receiver<usize>) {
         let (tx, rx): (Sender<usize>, Receiver<usize>) = mpsc::channel(5);
 
-        Self {
-            conn,
-            db_only,
-            pending_domains: if db_only {
-                None
-            } else {
-                Some(Arc::new(Mutex::new(Vec::new())))
+        (
+            Self {
+                conn,
+                db_only,
+                pending_domains: if db_only {
+                    None
+                } else {
+                    Some(Arc::new(Mutex::new(Vec::new())))
+                },
+                channel_sender: tx,
             },
-            channel_sender: tx,
-            channel_receiver: rx,
-        }
+            rx,
+        )
     }
 
     /// Get the raw connection object for the database
@@ -153,7 +153,10 @@ pub enum DatabaseError {
 }
 
 /// Connect to the database and return a DBState object
-pub(super) async fn connect_to_db(remote: bool, db_only: bool) -> libsql::Result<DBState> {
+pub(super) async fn connect_to_db(
+    remote: bool,
+    db_only: bool,
+) -> libsql::Result<(DBState, Receiver<usize>)> {
     let db = if remote {
         let url = std::env::var("TURSO_DATABASE_URL").expect("TURSO_DATABASE_URL must be set");
         let token = std::env::var("TURSO_AUTH_TOKEN").expect("TURSO_AUTH_TOKEN must be set");
@@ -396,7 +399,7 @@ async fn get_pending_from_db(
 
 /// Get pending domains from db, memory, or both depending on settings
 pub(crate) async fn get_pending_domains(
-    db_state: &mut DBState,
+    db_state: &DBState,
     amount: u64,
 ) -> Result<Vec<DetectedDomainWithId>, DatabaseError> {
     if db_state.db_only {
@@ -420,4 +423,22 @@ pub(crate) async fn get_pending_domains(
 
         Ok(db_state.process_pending_batch(amount as usize).await)
     }
+}
+
+pub(crate) async fn remove_pending_domains(
+    conn: &Connection,
+    domain_ids: Vec<i64>,
+) -> Result<(), DatabaseError> {
+    let tx = conn.transaction().await?;
+
+    for row_id in domain_ids {
+        tx.execute("DELETE FROM pending_domains WHERE rowId=$1", &[row_id])
+            .await?;
+
+        debug!("Added {} to pending_domains delete transaction", row_id);
+    }
+
+    tx.commit().await?;
+
+    Ok(())
 }

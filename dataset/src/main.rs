@@ -2,7 +2,10 @@ mod collectors;
 mod commands;
 mod converter;
 mod database;
+mod processor;
+
 use crate::database::init_db;
+use crate::processor::create_processor;
 use clap::{Parser, Subcommand, arg};
 use collectors::{safebrowsing::SafebrowsingClient, whois::get_whois_domain};
 use commands::{
@@ -13,6 +16,8 @@ use commands::{
 };
 use database::connect_to_db;
 use dotenv::dotenv;
+use icann_rdap_client::iana::BootstrapStore;
+use icann_rdap_client::prelude::*;
 use log::debug;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
@@ -28,6 +33,9 @@ const WHOIS_SERVERS: &str = include_str!("../assets/servers.json");
 struct Arguments {
     #[arg(short, long, default_value_t = false)]
     no_analysis: bool,
+
+    #[arg(short, long, default_value_t = true)]
+    use_gsb: bool,
 
     #[arg(short, long, default_value_t = false)]
     db_only: bool,
@@ -48,11 +56,11 @@ enum Commands {
     PhishStorm(PhishStormCommand),
 }
 
-fn get_whois_client() -> WhoIs {
+fn get_whois_client() -> Arc<WhoIs> {
     let whois = WhoIs::from_string(WHOIS_SERVERS).expect("Should be able to load servers");
     debug!("Loaded Whois server data");
 
-    whois
+    Arc::new(whois)
 }
 
 fn get_gsb_client(client: Arc<ClientWithMiddleware>) -> SafebrowsingClient {
@@ -62,6 +70,19 @@ fn get_gsb_client(client: Arc<ClientWithMiddleware>) -> SafebrowsingClient {
     debug!("Created GSB client");
 
     client
+}
+
+fn get_rdap_stuff() -> (
+    Arc<icann_rdap_client::http::Client>,
+    Arc<MemoryBootstrapStore>,
+) {
+    let config = ClientConfig::default();
+
+    let client = create_client(&config).expect("Should be able to create client");
+
+    let store = MemoryBootstrapStore::new();
+
+    (Arc::new(client), Arc::new(store))
 }
 
 fn get_reqwest_middleware_client() -> Arc<ClientWithMiddleware> {
@@ -105,7 +126,7 @@ async fn main() {
 
     let args = Arguments::parse();
 
-    let db_state = connect_to_db(false, args.db_only)
+    let (db_state, receiver) = connect_to_db(false, args.db_only)
         .await
         .expect("Should be able to connect to database");
     debug!("Connected to database");
@@ -114,9 +135,25 @@ async fn main() {
         .expect("Should be able to init database");
     debug!("Init'd database");
 
+    let db_state = Arc::new(db_state);
+
+    let whois = get_whois_client();
+
+    let (rdap_client, boostrap) = get_rdap_stuff();
+
+    create_processor(
+        db_state.clone(),
+        whois.clone(),
+        rdap_client,
+        boostrap,
+        Arc::new(args.use_gsb),
+        receiver,
+    );
+    debug!("Created domain processor thread");
+
     match args.command {
         Commands::WhoIs(command) => {
-            whois_command(&get_whois_client(), command).await.unwrap();
+            whois_command(&whois, command).await.unwrap();
         }
         Commands::GoogleSafeBrowsing(command) => {
             safebrowsing_command(get_gsb_client(get_reqwest_middleware_client()), command)
@@ -125,7 +162,7 @@ async fn main() {
         }
         Commands::PhishTank(command) => phishtank_command(
             &get_reqwest_middleware_client(),
-            db_state,
+            &db_state,
             command,
             args.no_analysis,
         )
@@ -133,7 +170,7 @@ async fn main() {
         .unwrap(),
         Commands::PhishStorm(command) => phishstorm_command(
             &get_reqwest_middleware_client(),
-            db_state,
+            &db_state,
             command,
             args.no_analysis,
         )
