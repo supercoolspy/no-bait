@@ -200,3 +200,12 @@ cython_debug/
 dataset/phishing.db
 dataset/phishtank.json.gz
 dataset/phishstorm.csv
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml
