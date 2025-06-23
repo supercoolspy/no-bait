@@ -28,22 +28,20 @@ pub(crate) struct WhoIsInfo {
 
 pub(crate) async fn get_whois_domain(whois: &WhoIs, url: Url) -> Result<WhoIsInfo, WhoIsError> {
     let domain = url.domain().ok_or(WhoIsError::NoRoot(url.clone()))?;
-    
+
     let server = whois.get_server_by_tld(domain);
-    
+
     if server.is_none() {
-        return Err(WhoIsError::NoWhois)
+        return Err(WhoIsError::NoWhois);
     }
-    
+
     let server = server.unwrap();
-    
+
     let mut options = WhoIsLookupOptions::from_string(domain)?;
-    
+
     options.server = Some(server.clone());
 
-    let whois_data_res = whois
-        .lookup_async(options)
-        .await;
+    let whois_data_res = whois.lookup_async(options).await;
 
     if whois_data_res.as_ref().is_err_and(|e| match e {
         whois_rust::WhoIsError::MapError(message) => {

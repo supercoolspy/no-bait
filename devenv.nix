@@ -5,7 +5,10 @@
   env.GREET = "devenv";
 
   # https://devenv.sh/packages/
-  packages = [ pkgs.git ];
+  packages = [
+    pkgs.git
+    pkgs.dotenvy
+  ];
 
   # https://devenv.sh/languages/
   languages.rust.enable = true;
@@ -13,4 +16,9 @@
     enable = true;
     uv.enable = true;
   };
+
+  enterTest = ''
+      cd dataset
+      dotenvy cargo test -- --nocapture
+    '';
 }

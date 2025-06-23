@@ -47,16 +47,83 @@ pub trait ToDetectedDomain {
 #[cfg(test)]
 mod tests {
     use crate::collectors::phishtank::get_latest_data;
+    use crate::collectors::{ToDetectedDomain, phishstorm, phishtank};
+    use crate::{get_gsb_client, get_reqwest_middleware_client};
     use reqwest::Client;
     use reqwest_middleware::ClientBuilder;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    pub fn init_logger() {
+        INIT.call_once(|| {
+            env_logger::builder()
+                .is_test(true) // avoid coloring & timestamps
+                .init();
+        });
+    }
 
     #[tokio::test]
+    #[ignore]
+    /// Currently broken since phishtank doesn't offer registration and doesn't work without an api key
     async fn get_phishtank_data() {
+        init_logger();
+
         get_latest_data(
             &ClientBuilder::new(Client::new()).build(),
             "supercoolspy".to_string(),
         )
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    /// Analyze the data locally, must be run after get_phishtank_data so that the file exists if in a purely test environment
+    async fn analyze_phishtank_data() {
+        init_logger();
+
+        if !tokio::fs::try_exists("./phishtank.json.gz").await.unwrap() {
+            return;
+        }
+
+        phishtank::get_data_local()
+            .await
+            .expect("Should be able to get phishtank data")
+            .to_detected_domains()
+            .expect("Should be able to convert to detected domains");
+    }
+
+    #[tokio::test]
+    /// Analyze the data locally, phishstorm.csv must be downloaded
+    async fn analyze_phishstorm_data() {
+        init_logger();
+
+        if !tokio::fs::try_exists("./phishstorm.csv").await.unwrap() {
+            return;
+        }
+
+        phishstorm::get_data_local()
+            .await
+            .expect("Should be able to get phishstorm data")
+            .to_detected_domains()
+            .expect("Should be able to convert to detected domains");
+    }
+
+    #[tokio::test]
+    async fn gsb_check() {
+        init_logger();
+
+        let client = get_gsb_client(get_reqwest_middleware_client());
+
+        let res = client
+            .get_url_batch_threat(vec![
+                "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/".to_string(),
+                "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/SOCIAL_ENGINEERING/URL/"
+                    .to_string(),
+            ])
+            .await
+            .expect("Should be able to get url safety");
+
+        assert_eq!(res.len(), 2)
     }
 }
