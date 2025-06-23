@@ -10,6 +10,7 @@ use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Cursor, Read};
+use futures::StreamExt;
 use thiserror::Error;
 use url::Url;
 use zip::ZipArchive;
@@ -82,7 +83,11 @@ fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormEr
     let mut data = Vec::new();
 
     let mut csv_reader = csv::Reader::from_reader(reader);
-    for result in csv_reader.deserialize() {
+    for result in csv_reader.deserialize().enumerate().filter_map(|(line, row)| {
+        if line < 18231 || line > 18349 {
+            Some(row)
+        } else { None }
+    }) {
         let record: PhishStormEntry = result?;
         data.push(record);
     }
