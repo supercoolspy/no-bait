@@ -8,7 +8,7 @@ description = "A tool to collect datasets for phishing detection"
 env_logger = "0.11.8"
 libsql = "0.9.8"
 tokio = { version = "1", features = ["full"] }
-whois-rust = { version = "1.6.0", features = ["tokio"] }
+whois-rust = { git = "https://github.com/supercoolspy/whois-rust.git", branch = "master", features = ["tokio"] }
 log = "0.4.27"
 dotenv = "0.15.0"
 serde = "1.0.219"
