@@ -15,7 +15,7 @@ use commands::{
     whois::{WhoIsCommand, whois_command},
 };
 use database::connect_to_db;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use icann_rdap_client::iana::BootstrapStore;
 use icann_rdap_client::prelude::*;
 use log::debug;
