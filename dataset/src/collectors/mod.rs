@@ -47,11 +47,14 @@ pub trait ToDetectedDomain {
 #[cfg(test)]
 mod tests {
     use crate::collectors::phishtank::get_latest_data;
+    use crate::collectors::rdap::{RDAPError, get_rdap_data};
     use crate::collectors::{ToDetectedDomain, phishstorm, phishtank};
-    use crate::{get_gsb_client, get_reqwest_middleware_client};
+    use crate::{get_gsb_client, get_rdap_stuff, get_reqwest_middleware_client};
+    use icann_rdap_common::prelude::RdapResponse;
     use reqwest::Client;
     use reqwest_middleware::ClientBuilder;
     use std::sync::Once;
+    use url::Url;
 
     static INIT: Once = Once::new();
 
@@ -125,5 +128,47 @@ mod tests {
             .expect("Should be able to get url safety");
 
         assert_eq!(res.len(), 2)
+    }
+
+    #[tokio::test]
+    async fn rdap_related_fail() {
+        init_logger();
+
+        let (rdap_client, boostrap) = get_rdap_stuff();
+
+        let res = get_rdap_data(
+            &rdap_client,
+            boostrap.as_ref(),
+            Url::parse("https://example.com").expect("Should be able to parse example url"),
+        )
+        .await;
+
+        assert!(res.is_err());
+
+        assert!(
+            matches!(res.err(), Some(RDAPError::NoRelated)),
+            "Error was not No Related field"
+        );
+    }
+
+    #[tokio::test]
+    async fn rdap_get_domain() {
+        init_logger();
+
+        let (rdap_client, boostrap) = get_rdap_stuff();
+
+        // Common for hosting so we want to make sure it resolves
+        let res = get_rdap_data(
+            &rdap_client,
+            boostrap.as_ref(),
+            Url::parse("https://vercel.app").expect("Should be able to parse vercel.app url"),
+        )
+        .await
+        .expect("Should be able to get RDAP info for vercel");
+
+        assert!(
+            matches!(res, RdapResponse::Domain(_)),
+            "Did not get domain in response"
+        );
     }
 }
