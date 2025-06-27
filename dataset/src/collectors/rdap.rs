@@ -48,9 +48,7 @@ pub(crate) async fn get_rdap_data(
         // Related should work for now but may not in the future
         let link_op: Option<Link> = links
             .iter()
-            .filter(|link| link.is_relation("related"))
-            .take(1)
-            .last()
+            .find(|link| link.is_relation("related"))
             .cloned();
 
         if link_op.is_none() {
