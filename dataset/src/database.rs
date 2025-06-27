@@ -3,9 +3,12 @@ use futures::StreamExt;
 use libsql::params::IntoValue;
 use libsql::{Builder, Connection, Row};
 use log::{debug, error};
+use moka::future::Cache as MemoryCache;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Debug, Display, Error};
 use std::mem::discriminant;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -125,6 +128,79 @@ impl TryInto<DetectedDomain> for Domain {
     }
 }
 
+struct Cache<T: Display + FromStr> {
+    memory_cache: Option<MemoryCache<String, T>>,
+    db_state: Arc<DBState>,
+    name: String,
+}
+impl<T: Display + FromStr + Clone + Send + Sync + 'static> Cache<T>
+where
+    <T as FromStr>::Err: std::error::Error,
+{
+    pub async fn add_to_cache(&self, key: String, value: T) -> Result<(), DatabaseError> {
+        if self.using_memory_cache() {
+            let cache = self.get_memory_cache();
+
+            cache.insert(key, value).await;
+        } else {
+            self.db_state
+                .get_connection()
+                .execute(
+                    &format!(
+                        "REPLACE INTO cache_{} (key, value) VALUES (?, ?)",
+                        &self.name
+                    ),
+                    (key, value.to_string()),
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+    pub async fn get_from_cache(&self, key: String) -> Result<Option<T>, DatabaseError> {
+        if self.using_memory_cache() {
+            let memory_res = self.get_memory_cache().get(&key).await;
+
+            if memory_res.is_some() {
+                return Ok(memory_res);
+            }
+        }
+
+        self.get_cache_from_db(key).await
+    }
+
+    async fn get_cache_from_db(&self, key: String) -> Result<Option<T>, DatabaseError> {
+        let mut res = self
+            .db_state
+            .get_connection()
+            .query(
+                &format!("SELECT value from cache_{} WHERE key=?", &self.name),
+                [key],
+            )
+            .await?;
+
+        let row = res.next().await?;
+
+        if row.is_none() {
+            return Ok(None);
+        }
+
+        let row = row.unwrap();
+
+        Ok(Some(
+            T::from_str(row.get_str(0)?).map_err(|e| DatabaseError::ParseStr)?,
+        ))
+    }
+
+    fn using_memory_cache(&self) -> bool {
+        self.memory_cache.is_some()
+    }
+
+    fn get_memory_cache(&self) -> &MemoryCache<String, T> {
+        self.memory_cache.as_ref().unwrap()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum DatabaseError {
     #[error("LibSQL Error: {0}")]
@@ -150,6 +226,9 @@ pub enum DatabaseError {
 
     #[error("No Collector Found")]
     NoCollectorFound,
+
+    #[error("Parse error from string")]
+    ParseStr,
 }
 
 /// Connect to the database and return a DBState object
