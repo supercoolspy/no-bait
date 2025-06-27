@@ -6,7 +6,7 @@ use crate::database::DatabaseError;
 use futures::StreamExt;
 use log::{debug, error, info};
 use rayon::iter::ParallelIterator;
-use rayon::prelude::IntoParallelRefIterator;
+use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -87,7 +87,8 @@ fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormEr
         .deserialize()
         .enumerate()
         .filter_map(|(line, row)| {
-            if line < 18231 || line > 18349 {
+            // 18232-18348 contain invalid data, 19582 (19605 in the csv) contains an invalid domain name
+            if (line < 18231 || line > 18349) && line != 19582 {
                 Some(row)
             } else {
                 None
@@ -103,11 +104,11 @@ fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormEr
 
 impl ToDetectedDomain for PhishStormDataset {
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
-        self.par_iter()
+        self.into_par_iter()
             .map(|d| {
+                let url_str = format!("https://{}", d.domain);
                 // We don't know protocol but we can assume
                 // TODO: PhishStorm extra check to see if it has any certificates
-                let url_str = format!("https://{}", d.domain.replace("\'", ""));
                 debug!("Parsing {}", &url_str);
                 let url_res = url_str.parse::<Url>();
 
