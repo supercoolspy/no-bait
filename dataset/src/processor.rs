@@ -1,3 +1,4 @@
+use crate::collectors::rdap::RDAPClient;
 use crate::converter::convert_domains;
 use crate::database::{DBState, get_pending_domains, remove_pending_domains};
 use icann_rdap_client::iana::MemoryBootstrapStore;
@@ -12,8 +13,7 @@ use whois_rust::WhoIs;
 pub(super) fn create_processor(
     db_state: Arc<DBState>,
     whois: Arc<WhoIs>,
-    rdap_client: Arc<icann_rdap_client::http::Client>,
-    boostrap: Arc<MemoryBootstrapStore>,
+    rdap_client: Arc<RDAPClient>,
     use_gsb: Arc<bool>,
     mut channel_receiver: Receiver<usize>,
 ) {
@@ -27,13 +27,13 @@ pub(super) fn create_processor(
                 let amount = amount_op.unwrap();
 
                 debug!("Processing {} domains", amount);
-                process_domains(&db_state, &whois, &rdap_client, &boostrap, &use_gsb, amount).await
+                process_domains(&db_state, &whois, &rdap_client, &use_gsb, amount).await
             } else {
                 // Timeout hit, check from db
                 let amount = 1000;
 
                 debug!("Processing {} domains", amount);
-                process_domains(&db_state, &whois, &rdap_client, &boostrap, &use_gsb, amount).await;
+                process_domains(&db_state, &whois, &rdap_client, &use_gsb, amount).await;
             };
         }
     });
@@ -42,8 +42,7 @@ pub(super) fn create_processor(
 async fn process_domains(
     db_state: &DBState,
     whois: &WhoIs,
-    rdap_client: &icann_rdap_client::http::Client,
-    boostrap: &MemoryBootstrapStore,
+    rdap_client: &RDAPClient,
     use_gsb: &bool,
     amount: usize,
 ) {
@@ -65,7 +64,7 @@ async fn process_domains(
         return;
     }
 
-    let rows_to_delete = convert_domains(db_state, whois, rdap_client, boostrap, pending).await;
+    let rows_to_delete = convert_domains(db_state, whois, rdap_client, pending).await;
 
     let remove_res = remove_pending_domains(db_state.get_connection(), rows_to_delete).await;
     if remove_res.is_err() {

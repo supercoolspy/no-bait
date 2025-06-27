@@ -4,6 +4,7 @@ mod converter;
 mod database;
 mod processor;
 
+use crate::collectors::rdap::RDAPClient;
 use crate::database::init_db;
 use crate::processor::create_processor;
 use clap::{Parser, Subcommand, arg};
@@ -71,19 +72,6 @@ fn get_gsb_client(client: Arc<ClientWithMiddleware>) -> SafebrowsingClient {
     client
 }
 
-fn get_rdap_stuff() -> (
-    Arc<icann_rdap_client::http::Client>,
-    Arc<MemoryBootstrapStore>,
-) {
-    let config = ClientConfig::default();
-
-    let client = create_client(&config).expect("Should be able to create client");
-
-    let store = MemoryBootstrapStore::new();
-
-    (Arc::new(client), Arc::new(store))
-}
-
 fn get_reqwest_middleware_client() -> Arc<ClientWithMiddleware> {
     let mut headers = HeaderMap::new();
 
@@ -138,13 +126,12 @@ async fn main() {
 
     let whois = get_whois_client();
 
-    let (rdap_client, boostrap) = get_rdap_stuff();
+    let rdap_client = Arc::new(RDAPClient::new());
 
     create_processor(
         db_state.clone(),
         whois.clone(),
         rdap_client,
-        boostrap,
         Arc::new(args.use_gsb),
         receiver,
     );

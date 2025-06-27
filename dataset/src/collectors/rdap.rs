@@ -1,11 +1,14 @@
-use std::str::FromStr;
-
+use icann_rdap_client::http::{ClientConfig, create_client};
+use icann_rdap_client::iana::MemoryBootstrapStore;
 use icann_rdap_client::{
     iana::BootstrapStore,
     rdap::{QueryType, rdap_bootstrapped_request, rdap_url_request},
 };
 use icann_rdap_common::prelude::{Link, ObjectCommonFields, RdapResponse};
+use libsql::AuthAction::Select;
 use log::debug;
+use std::str::FromStr;
+use std::sync::Arc;
 use thiserror::Error;
 use url::Url;
 
@@ -21,7 +24,7 @@ pub enum RDAPError {
     RDAPClient(#[from] icann_rdap_client::RdapClientError),
 
     #[error("No Root Domain Parsable {0}")]
-    NoRoot(url::Url),
+    NoRoot(Url),
 
     #[error("No related link")]
     NoRelated,
@@ -30,39 +33,56 @@ pub enum RDAPError {
     NoHREF,
 }
 
-/// Per most registry's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
-pub(crate) async fn get_rdap_data(
-    rdap_client: &icann_rdap_client::http::Client,
-    store: &impl BootstrapStore,
-    url: Url,
-) -> Result<RdapResponse, RDAPError> {
-    let query = QueryType::from_str(url.domain().ok_or(RDAPError::NoRoot(url.clone()))?)?;
+pub struct RDAPClient {
+    rdap_client: icann_rdap_client::http::Client,
+    store: MemoryBootstrapStore,
+}
 
-    let response =
-        rdap_bootstrapped_request(&query, rdap_client, store, |reg| debug!("fetching {reg:?}"))
-            .await?;
+impl RDAPClient {
+    pub fn new() -> Self {
+        let config = ClientConfig::default();
 
-    if let RdapResponse::Domain(domain) = response.rdap {
-        let links = domain.links();
+        let client = create_client(&config).expect("Should be able to create client");
 
-        // Related should work for now but may not in the future
-        let link_op: Option<Link> = links
-            .iter()
-            .find(|link| link.is_relation("related"))
-            .cloned();
+        let store = MemoryBootstrapStore::new();
 
-        if link_op.is_none() {
-            return Err(RDAPError::NoRelated);
+        Self {
+            rdap_client: client,
+            store,
         }
+    }
 
-        let link = link_op.unwrap();
-        let location = link.href.ok_or(RDAPError::NoHREF)?;
+    /// Per most registry's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
+    pub(crate) async fn get_rdap_data(&self, url: Url) -> Result<RdapResponse, RDAPError> {
+        let query = QueryType::from_str(url.domain().ok_or(RDAPError::NoRoot(url.clone()))?)?;
 
-        let res = rdap_url_request(&location, &rdap_client).await?;
-        let data = res.rdap;
+        let response = rdap_bootstrapped_request(&query, &self.rdap_client, &self.store, |reg| {
+            debug!("fetching {reg:?}")
+        })
+        .await?;
 
-        Ok(data)
-    } else {
-        Err(RDAPError::NoRoot(url))
+        if let RdapResponse::Domain(domain) = response.rdap {
+            let links = domain.links();
+
+            // Related should work for now but may not in the future
+            let link_op: Option<Link> = links
+                .iter()
+                .find(|link| link.is_relation("related"))
+                .cloned();
+
+            if link_op.is_none() {
+                return Err(RDAPError::NoRelated);
+            }
+
+            let link = link_op.unwrap();
+            let location = link.href.ok_or(RDAPError::NoHREF)?;
+
+            let res = rdap_url_request(&location, &self.rdap_client).await?;
+            let data = res.rdap;
+
+            Ok(data)
+        } else {
+            Err(RDAPError::NoRoot(url))
+        }
     }
 }

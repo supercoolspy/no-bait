@@ -1,4 +1,4 @@
-use crate::collectors::rdap::{RDAPError, get_rdap_data};
+use crate::collectors::rdap::{RDAPClient, RDAPError};
 use crate::collectors::whois::{WhoIsError, get_whois_domain};
 use crate::database::{
     DBState, DatabaseError, DetectedDomainWithId, Domain, DomainInfo, DomainWithId, add_domain,
@@ -75,8 +75,7 @@ async fn check_domains_exist(
 async fn get_info_for_domains(
     domains: Vec<DetectedDomainWithId>,
     whois_client: &WhoIs,
-    rdap_client: &icann_rdap_client::http::Client,
-    store: &impl BootstrapStore,
+    rdap_client: &RDAPClient,
 ) -> impl Iterator<Item = DomainWithId> {
     // Add whois/rdap info to domains that aren't already in the database
     let domains_to_add = iter(domains.into_iter())
@@ -88,7 +87,8 @@ async fn get_info_for_domains(
             if res.is_err() {
                 if let Err(WhoIsError::NoWhois) = res {
                     // Get rdap info for domain
-                    let rdap = get_rdap_data(rdap_client, store, url.clone())
+                    let rdap = rdap_client
+                        .get_rdap_data(url.clone())
                         .await
                         .map_err(|e| (url.clone(), ConverterError::from(e)))?;
 
@@ -180,8 +180,7 @@ async fn add_domains_to_db(
 pub async fn convert_domains(
     db_state: &DBState,
     whois_client: &WhoIs,
-    rdap_client: &icann_rdap_client::http::Client,
-    store: &MemoryBootstrapStore,
+    rdap_client: &RDAPClient,
     domains: Vec<DetectedDomainWithId>,
 ) -> Vec<i64> {
     let conn = db_state.get_connection();
@@ -191,7 +190,7 @@ pub async fn convert_domains(
     // Attempt to add new domains to the db
     let add_domain_results = add_domains_to_db(
         conn,
-        get_info_for_domains(add, whois_client, rdap_client, store).await,
+        get_info_for_domains(add, whois_client, rdap_client).await,
     )
     .await;
 
