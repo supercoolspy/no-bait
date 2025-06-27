@@ -1,6 +1,6 @@
 use crate::converter::convert_domains;
 use crate::database::{DBState, get_pending_domains, remove_pending_domains};
-use icann_rdap_client::iana::{BootstrapStore, MemoryBootstrapStore};
+use icann_rdap_client::iana::MemoryBootstrapStore;
 use log::{debug, error};
 use std::sync::Arc;
 use std::thread;

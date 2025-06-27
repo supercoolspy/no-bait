@@ -16,7 +16,6 @@ use commands::{
 };
 use database::connect_to_db;
 use dotenvy::dotenv;
-use icann_rdap_client::iana::BootstrapStore;
 use icann_rdap_client::prelude::*;
 use log::debug;
 use reqwest::header::{HeaderMap, HeaderValue};

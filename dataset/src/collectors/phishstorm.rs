@@ -6,7 +6,7 @@ use crate::database::DatabaseError;
 use futures::StreamExt;
 use log::{debug, error, info};
 use rayon::iter::ParallelIterator;
-use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator};
+use rayon::prelude::IntoParallelIterator;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
