@@ -4,13 +4,14 @@ use crate::collectors::{
 };
 use crate::database::DatabaseError;
 use futures::StreamExt;
-use log::{debug, error, info};
+use tracing::{debug, error, info, info_span, instrument, warn, Instrument, Level};
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelIterator;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Cursor, Read};
+use std::time::Instant;
 use thiserror::Error;
 use url::Url;
 use zip::ZipArchive;
@@ -51,6 +52,7 @@ pub(crate) enum PhishStormError {
     DatabaseError(#[from] DatabaseError),
 }
 
+#[instrument(skip(client), err)]
 pub(crate) async fn download_phishstorm_dataset(
     client: &ClientWithMiddleware,
 ) -> Result<PhishStormDataset, PhishStormError> {
@@ -73,12 +75,14 @@ pub(crate) async fn download_phishstorm_dataset(
     read_csv_to_data(file)
 }
 
+#[instrument(err)]
 pub(crate) async fn get_data_local() -> Result<PhishStormDataset, PhishStormError> {
     let file = tokio::fs::File::open("./phishstorm.csv").await?;
 
     read_csv_to_data(file.into_std().await)
 }
 
+#[instrument(skip(reader), err)]
 fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormError> {
     let mut data = Vec::new();
 
@@ -103,13 +107,11 @@ fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormEr
 }
 
 impl ToDetectedDomain for PhishStormDataset {
+    #[instrument(skip(self))]
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.into_par_iter()
             .map(|d| {
                 let url_str = format!("https://{}", d.domain);
-                // We don't know protocol but we can assume
-                // TODO: PhishStorm extra check to see if it has any certificates
-                debug!("Parsing {}", &url_str);
                 let url_res = url_str.parse::<Url>();
 
                 // Due to parallelism it's really hard to tell which domain errored

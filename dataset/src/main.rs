@@ -18,12 +18,12 @@ use commands::{
 use database::connect_to_db;
 use dotenvy::dotenv;
 use icann_rdap_client::prelude::*;
-use log::debug;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use std::sync::Arc;
+use tracing::debug;
 use whois_rust::WhoIs;
 
 const WHOIS_SERVERS: &str = include_str!("../assets/servers.json");
@@ -106,7 +106,12 @@ fn get_reqwest_middleware_client() -> Arc<ClientWithMiddleware> {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    tracing_subscriber::fmt()
+        .with_line_number(true)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .init();
+
 
     dotenv().expect("Should be able to load environment variables");
     debug!("Loaded environment variables from dotenv");

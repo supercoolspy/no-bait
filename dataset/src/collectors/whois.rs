@@ -1,4 +1,5 @@
 use thiserror::Error;
+use tracing::instrument;
 use url::Url;
 use whois_rust::{WhoIs, WhoIsLookupOptions};
 
@@ -26,6 +27,7 @@ pub(crate) struct WhoIsInfo {
     pub(crate) whois_data: String,
 }
 
+#[instrument]
 pub(crate) async fn get_whois_domain(whois: &WhoIs, url: Url) -> Result<WhoIsInfo, WhoIsError> {
     let domain = url.domain().ok_or(WhoIsError::NoRoot(url.clone()))?;
 

@@ -9,7 +9,7 @@ use futures::stream::iter;
 use icann_rdap_client::iana::BootstrapStore;
 use icann_rdap_client::prelude::MemoryBootstrapStore;
 use libsql::Connection;
-use log::error;
+use tracing::{error, instrument};
 use rayon::prelude::*;
 use thiserror::Error;
 use url::Url;
@@ -29,6 +29,7 @@ pub enum ConverterError {
     Database(#[from] DatabaseError),
 }
 
+#[instrument(skip_all, fields(domains_len=domains.len()))]
 async fn check_domains_exist(
     conn: &Connection,
     domains: Vec<DetectedDomainWithId>,
@@ -72,6 +73,7 @@ async fn check_domains_exist(
 }
 
 /// Gets whois/rdap info for a set of domains with id, and returns an Iterator over them
+#[instrument(skip_all, fields(domains_len=domains.len()))]
 async fn get_info_for_domains(
     domains: Vec<DetectedDomainWithId>,
     whois_client: &WhoIs,
@@ -138,6 +140,7 @@ async fn get_info_for_domains(
 /// Takes in a list of domains, attempts to add them to the database.
 /// If the row already exists this modifies the existing row.
 /// Returns Vec of Results for the addition to the database with the i64 representing the rowId, if successful
+#[instrument(skip_all)]
 async fn add_domains_to_db(
     conn: &Connection,
     domains: impl Iterator<Item = DomainWithId>,
@@ -177,6 +180,7 @@ async fn add_domains_to_db(
 /// Processes a batch of domains into the database and returns the rowIds of the domains to delete.
 /// If adding a domain to the database fails for any reason, the rowId will not be returned.
 /// <u>**Only**</u> rowIds that are returned from this function should be removed from the database.
+#[instrument(skip(whois_client, rdap_client, domains), fields(domains_len=domains.len()))]
 pub async fn convert_domains(
     db_state: &DBState,
     whois_client: &WhoIs,

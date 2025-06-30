@@ -2,7 +2,7 @@ use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use futures::StreamExt;
 use libsql::params::IntoValue;
 use libsql::{Builder, Connection, Row};
-use log::{debug, error};
+use tracing::{debug, error, info, instrument};
 use moka::future::Cache as MemoryCache;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Error};
@@ -232,6 +232,7 @@ pub enum DatabaseError {
 }
 
 /// Connect to the database and return a DBState object
+#[instrument]
 pub(super) async fn connect_to_db(
     remote: bool,
     db_only: bool,
@@ -239,8 +240,10 @@ pub(super) async fn connect_to_db(
     let db = if remote {
         let url = std::env::var("TURSO_DATABASE_URL").expect("TURSO_DATABASE_URL must be set");
         let token = std::env::var("TURSO_AUTH_TOKEN").expect("TURSO_AUTH_TOKEN must be set");
+        info!("Using remote database");
         Builder::new_remote(url, token).build().await
     } else {
+        info!("Using local database");
         Builder::new_local(Path::new("./phishing.db")).build().await
     }?;
 
@@ -257,6 +260,7 @@ pub(crate) async fn init_db(conn: &Connection) -> Result<(), DatabaseError> {
 
 /// Check whether a url exists in the Domains table and returns the Row object if it does.
 /// This prevents an extra call to get the domain info after the fact for pre-exising rows.
+#[instrument(skip(conn))]
 pub(crate) async fn check_exists(
     conn: &Connection,
     url: &Url,
@@ -269,6 +273,7 @@ pub(crate) async fn check_exists(
 }
 
 /// Create a domain row, will error if the row already exists
+#[instrument(skip(conn))]
 async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     conn.execute(
         "INSERT INTO domains (url, whois_info, collector_info) VALUES ($1, $2, $3)",
@@ -284,6 +289,7 @@ async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), Data
 }
 
 /// Update a domain row, will error if the row doesn't exist
+#[instrument(skip(conn, collectors))]
 async fn update_domain_row(
     conn: &Connection,
     domain: DetectedDomain,
@@ -309,6 +315,7 @@ async fn update_domain_row(
 }
 
 /// Update a domain, returns DatabaseError::NoRow if the row doesn't exist
+#[instrument(skip(conn))]
 pub(crate) async fn update_domain(
     conn: &Connection,
     domain: DetectedDomain,
@@ -329,6 +336,7 @@ pub(crate) async fn update_domain(
 }
 
 /// Add a domain, returns DatabaseError::RowAlreadyExists if the row already exists
+#[instrument(skip(conn))]
 pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     let exists = check_exists(conn, &domain.url).await?.is_some();
 
@@ -342,6 +350,7 @@ pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), 
 }
 
 /// Add a pending domain to the pending domains table
+#[instrument]
 pub(crate) async fn add_pending_domain(
     db_state: &DBState,
     domain: DetectedDomain,
@@ -378,6 +387,7 @@ pub(crate) async fn add_pending_domain(
 }
 
 /// Add a Vec of pending domains to the pending domains table
+#[instrument(skip(domains))]
 pub(crate) async fn add_pending_domains(
     db_state: &DBState,
     domains: Vec<DetectedDomain>,
@@ -420,6 +430,7 @@ pub(crate) async fn add_pending_domains(
 }
 
 /// Get at max some amount of pending domains from the pending domains table
+#[instrument(skip(conn))]
 async fn get_pending_from_db(
     conn: &Connection,
     amount: u64,
@@ -477,6 +488,7 @@ async fn get_pending_from_db(
 }
 
 /// Get pending domains from db, memory, or both depending on settings
+#[instrument]
 pub(crate) async fn get_pending_domains(
     db_state: &DBState,
     amount: u64,
@@ -504,6 +516,7 @@ pub(crate) async fn get_pending_domains(
     }
 }
 
+#[instrument(skip_all, fields(domain_amount=domain_ids.len()))]
 pub(crate) async fn remove_pending_domains(
     conn: &Connection,
     domain_ids: Vec<i64>,

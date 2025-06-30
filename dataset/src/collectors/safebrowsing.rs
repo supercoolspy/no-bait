@@ -3,6 +3,7 @@ use std::sync::{Arc, LazyLock};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::instrument;
 
 pub(crate) struct SafebrowsingClient {
     api_key: String,
@@ -85,6 +86,7 @@ impl SafebrowsingClient {
     }
 
     /// Returns a list of unsafe urls
+    #[instrument(skip(self))]
     pub async fn get_url_batch_threat(
         &self,
         urls: Vec<String>,

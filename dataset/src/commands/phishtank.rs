@@ -3,6 +3,7 @@ use crate::collectors::phishtank::{PhishTankError, get_data_local, get_latest_da
 use crate::database::{DBState, add_pending_domains};
 use clap::Args;
 use reqwest_middleware::ClientWithMiddleware;
+use tracing::instrument;
 
 #[derive(Args, Debug)]
 pub(crate) struct PhishTankCommand {
@@ -10,6 +11,7 @@ pub(crate) struct PhishTankCommand {
     local: bool,
 }
 
+#[instrument(skip(client))]
 pub(crate) async fn phishtank_command(
     client: &ClientWithMiddleware,
     db_state: &DBState,

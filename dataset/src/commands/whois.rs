@@ -1,4 +1,5 @@
 use clap::Args;
+use tracing::instrument;
 use whois_rust::WhoIs;
 
 use crate::{collectors::whois::WhoIsError, get_whois_domain};
@@ -8,6 +9,7 @@ pub(crate) struct WhoIsCommand {
     website: String,
 }
 
+#[instrument(skip(whois))]
 pub(crate) async fn whois_command(whois: &WhoIs, command: WhoIsCommand) -> Result<(), WhoIsError> {
     let info = get_whois_domain(whois, command.website.parse().unwrap()).await?;
 

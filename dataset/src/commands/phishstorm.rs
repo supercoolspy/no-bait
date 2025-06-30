@@ -3,6 +3,7 @@ use crate::collectors::phishstorm::{PhishStormError, download_phishstorm_dataset
 use crate::database::{DBState, add_pending_domains};
 use clap::Args;
 use reqwest_middleware::ClientWithMiddleware;
+use tracing::instrument;
 
 #[derive(Args, Debug)]
 pub(crate) struct PhishStormCommand {
@@ -10,6 +11,7 @@ pub(crate) struct PhishStormCommand {
     local: bool,
 }
 
+#[instrument(skip(client))]
 pub(crate) async fn phishstorm_command(
     client: &ClientWithMiddleware,
     db_state: &DBState,

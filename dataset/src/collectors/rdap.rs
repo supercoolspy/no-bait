@@ -6,7 +6,7 @@ use icann_rdap_client::{
 };
 use icann_rdap_common::prelude::{Link, ObjectCommonFields, RdapResponse};
 use libsql::AuthAction::Select;
-use log::debug;
+use tracing::{debug, instrument};
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
@@ -53,6 +53,7 @@ impl RDAPClient {
     }
 
     /// Per most registry's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
+    #[instrument(skip(self))]
     pub(crate) async fn get_rdap_data(&self, url: Url) -> Result<RdapResponse, RDAPError> {
         let query = QueryType::from_str(url.domain().ok_or(RDAPError::NoRoot(url.clone()))?)?;
 

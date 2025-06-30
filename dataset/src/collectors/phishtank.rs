@@ -5,7 +5,7 @@ use crate::collectors::{
 };
 use crate::database::DatabaseError;
 use flate2::bufread::GzDecoder;
-use log::{debug, error, warn};
+use tracing::{debug, error, instrument, warn};
 use rayon::prelude::*;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ use url::{ParseError, Url};
 
 pub type PhishTankDataset = Vec<PhishTankDatasetElement>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct PhishTankDatasetElement {
     pub(crate) phish_id: i64,
     pub(crate) url: String,
@@ -30,7 +30,7 @@ pub struct PhishTankDatasetElement {
     pub(crate) target: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Detail {
     pub(crate) ip_address: String,
     pub(crate) cidr_block: String,
@@ -106,6 +106,7 @@ fn read_archive_to_data(bytes: bytes::Bytes) -> Result<PhishTankDataset, PhishTa
 }
 
 impl ToDetectedDomain for PhishTankDataset {
+    #[instrument]
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.into_par_iter()
             .filter(|datapoint| datapoint.verified == "yes")

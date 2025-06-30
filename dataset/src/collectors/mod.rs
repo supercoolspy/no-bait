@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::{AddrParseError, IpAddr};
 use thiserror::Error;
+use tracing::instrument;
 use url::{ParseError, Url};
 
 pub(super) mod phishstorm;
