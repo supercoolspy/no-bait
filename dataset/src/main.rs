@@ -112,7 +112,6 @@ async fn main() {
         .with_thread_ids(true)
         .init();
 
-
     dotenv().expect("Should be able to load environment variables");
     debug!("Loaded environment variables from dotenv");
 

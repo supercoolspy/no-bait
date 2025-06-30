@@ -6,10 +6,10 @@ use icann_rdap_client::{
 };
 use icann_rdap_common::prelude::{Link, ObjectCommonFields, RdapResponse};
 use libsql::AuthAction::Select;
-use tracing::{debug, instrument};
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::{debug, instrument};
 use url::Url;
 
 #[derive(Error, Debug)]

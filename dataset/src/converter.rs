@@ -9,9 +9,9 @@ use futures::stream::iter;
 use icann_rdap_client::iana::BootstrapStore;
 use icann_rdap_client::prelude::MemoryBootstrapStore;
 use libsql::Connection;
-use tracing::{error, instrument};
 use rayon::prelude::*;
 use thiserror::Error;
+use tracing::{error, instrument};
 use url::Url;
 use whois_rust::WhoIs;
 

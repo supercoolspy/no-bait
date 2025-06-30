@@ -4,7 +4,6 @@ use crate::collectors::{
 };
 use crate::database::DatabaseError;
 use futures::StreamExt;
-use tracing::{debug, error, info, info_span, instrument, warn, Instrument, Level};
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelIterator;
 use reqwest_middleware::ClientWithMiddleware;
@@ -13,6 +12,7 @@ use std::fs::File;
 use std::io::{Cursor, Read};
 use std::time::Instant;
 use thiserror::Error;
+use tracing::{Instrument, Level, debug, error, info, info_span, instrument, warn};
 use url::Url;
 use zip::ZipArchive;
 

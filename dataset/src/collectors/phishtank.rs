@@ -5,7 +5,6 @@ use crate::collectors::{
 };
 use crate::database::DatabaseError;
 use flate2::bufread::GzDecoder;
-use tracing::{debug, error, instrument, warn};
 use rayon::prelude::*;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
@@ -13,6 +12,7 @@ use std::io::Cursor;
 use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
+use tracing::{debug, error, instrument, warn};
 use url::{ParseError, Url};
 
 pub type PhishTankDataset = Vec<PhishTankDatasetElement>;

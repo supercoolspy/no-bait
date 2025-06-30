@@ -2,12 +2,12 @@ use crate::collectors::rdap::RDAPClient;
 use crate::converter::convert_domains;
 use crate::database::{DBState, get_pending_domains, remove_pending_domains};
 use icann_rdap_client::iana::MemoryBootstrapStore;
-use tracing::{debug, error};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
+use tracing::{debug, error};
 use whois_rust::WhoIs;
 
 pub(super) fn create_processor(

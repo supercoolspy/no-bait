@@ -2,7 +2,6 @@ use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use futures::StreamExt;
 use libsql::params::IntoValue;
 use libsql::{Builder, Connection, Row};
-use tracing::{debug, error, info, instrument};
 use moka::future::Cache as MemoryCache;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Error};
@@ -14,6 +13,7 @@ use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc};
+use tracing::{debug, error, info, instrument};
 use url::Url;
 
 pub type CollectorColumn = Vec<DomainCollectorInfo>;
