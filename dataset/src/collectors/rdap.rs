@@ -9,7 +9,7 @@ use libsql::AuthAction::Select;
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, trace};
 use url::Url;
 
 #[derive(Error, Debug)]
@@ -53,23 +53,26 @@ impl RDAPClient {
     }
 
     /// Per most registry's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
-    #[instrument(skip(self))]
+    #[instrument(skip(self), err)]
     pub(crate) async fn get_rdap_data(&self, url: Url) -> Result<RdapResponse, RDAPError> {
         let query = QueryType::from_str(url.domain().ok_or(RDAPError::NoRoot(url.clone()))?)?;
 
         let response = rdap_bootstrapped_request(&query, &self.rdap_client, &self.store, |reg| {
-            debug!("fetching {reg:?}")
+            trace!("fetching {reg:?}")
         })
         .await?;
 
         if let RdapResponse::Domain(domain) = response.rdap {
+            debug!("Got as domain");
             let links = domain.links();
+            trace!("Links: {:?}", links);
 
             // Related should work for now but may not in the future
             let link_op: Option<Link> = links
                 .iter()
                 .find(|link| link.is_relation("related"))
                 .cloned();
+            trace!("Related link: {:?}", link_op);
 
             if link_op.is_none() {
                 return Err(RDAPError::NoRelated);

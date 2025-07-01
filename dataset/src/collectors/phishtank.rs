@@ -12,7 +12,7 @@ use std::io::Cursor;
 use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, info_span, instrument, trace, warn};
 use url::{ParseError, Url};
 
 pub type PhishTankDataset = Vec<PhishTankDatasetElement>;
@@ -70,12 +70,11 @@ pub enum PhishTankError {
     DatabaseError(#[from] DatabaseError),
 }
 
+#[instrument(skip(client), err)]
 pub(crate) async fn get_latest_data(
     client: &ClientWithMiddleware,
     username: String,
 ) -> Result<PhishTankDataset, PhishTankError> {
-    warn!("phishtank/{}", &username);
-
     let response = client
         .get("https://data.phishtank.com/data/online-valid.json.gz")
         .header("User-Agent", format!("phishtank/{username}"))
@@ -92,11 +91,14 @@ pub(crate) async fn get_latest_data(
     read_archive_to_data(bytes)
 }
 
+#[instrument(err)]
 pub(crate) async fn get_data_local() -> Result<PhishTankDataset, PhishTankError> {
     let data = tokio::fs::read("./phishtank.json.gz").await?;
+    debug!("Successfully read data locally");
     read_archive_to_data(data.into())
 }
 
+#[instrument(skip_all, err)]
 fn read_archive_to_data(bytes: bytes::Bytes) -> Result<PhishTankDataset, PhishTankError> {
     let decoder = GzDecoder::new(Cursor::new(bytes));
     let data: PhishTankDataset = serde_json::from_reader(decoder)?;
@@ -106,13 +108,17 @@ fn read_archive_to_data(bytes: bytes::Bytes) -> Result<PhishTankDataset, PhishTa
 }
 
 impl ToDetectedDomain for PhishTankDataset {
-    #[instrument]
+    #[instrument(err)]
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.into_par_iter()
             .filter(|datapoint| datapoint.verified == "yes")
             .map(|domain_info| {
+                let parse_span = info_span!("phishtank_to_detected_domains", domain=domain_info.url);
+                let _enter = parse_span.enter();
+
                 debug!("Parsing {}", domain_info.url);
                 let url = Url::parse(&domain_info.url)?;
+                trace!("Parsed URL: {}", url);
 
                 let ip = domain_info
                     .details
@@ -120,6 +126,7 @@ impl ToDetectedDomain for PhishTankDataset {
                     .map(|info| &info.ip_address)
                     .map(|ip| IpAddr::from_str(ip))
                     .transpose()?;
+                trace!("IP Address: {:?}", ip);
 
                 Ok(DetectedDomain {
                     url,

@@ -13,7 +13,7 @@ use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, mpsc};
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, trace};
 use url::Url;
 
 pub type CollectorColumn = Vec<DomainCollectorInfo>;
@@ -68,14 +68,17 @@ impl DBState {
     }
 
     /// Get min(batch_size, length) pending domains from the in-memory pending domains list
+    #[instrument(skip(self))]
     async fn process_pending_batch(&self, batch_size: usize) -> Vec<DetectedDomainWithId> {
         let pending_domains = self.get_pending_domains();
         let mut domains = pending_domains.lock().await;
         let batch_end = batch_size.min(domains.len());
+        debug!("Found {} pending domains", batch_end);
         domains.drain(..batch_end).collect()
     }
 
     /// Get the amount of pending domains in memory
+    #[instrument(skip(self), ret)]
     pub async fn get_pending_count(&self) -> usize {
         if self.pending_domains.is_none() {
             return 0;
@@ -85,6 +88,7 @@ impl DBState {
     }
 
     /// Check if in memory pending domains in enabled
+    #[instrument(skip_all, ret)]
     pub async fn has_pending_domains(&self) -> bool {
         // Is some check should prevent any
         self.pending_domains.is_some() && !self.get_pending_domains().lock().await.is_empty()
@@ -232,7 +236,7 @@ pub enum DatabaseError {
 }
 
 /// Connect to the database and return a DBState object
-#[instrument]
+#[instrument(err)]
 pub(super) async fn connect_to_db(
     remote: bool,
     db_only: bool,
@@ -289,7 +293,7 @@ async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), Data
 }
 
 /// Update a domain row, will error if the row doesn't exist
-#[instrument(skip(conn, collectors))]
+#[instrument(skip(conn, collectors), err)]
 async fn update_domain_row(
     conn: &Connection,
     domain: DetectedDomain,
@@ -301,6 +305,7 @@ async fn update_domain_row(
     });
 
     if let Some(existing_index) = existing_index {
+        trace!("Found existing version of collector");
         collectors.swap_remove(existing_index);
 
         collectors.push(domain.collector_info);
@@ -315,7 +320,7 @@ async fn update_domain_row(
 }
 
 /// Update a domain, returns DatabaseError::NoRow if the row doesn't exist
-#[instrument(skip(conn))]
+#[instrument(skip(conn), err)]
 pub(crate) async fn update_domain(
     conn: &Connection,
     domain: DetectedDomain,
@@ -323,9 +328,11 @@ pub(crate) async fn update_domain(
     let row = check_exists(conn, &domain.url).await?;
 
     if row.is_some() {
+        trace!("Row exists");
         let row = row.unwrap();
 
         let collectors_str = row.get::<String>(2)?;
+        trace!("Collectors value in database: {}", collectors_str);
 
         let collectors: CollectorColumn = serde_json::from_str(&collectors_str)?;
 
@@ -336,11 +343,12 @@ pub(crate) async fn update_domain(
 }
 
 /// Add a domain, returns DatabaseError::RowAlreadyExists if the row already exists
-#[instrument(skip(conn))]
+#[instrument(skip(conn), err)]
 pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     let exists = check_exists(conn, &domain.url).await?.is_some();
 
     if !exists {
+        trace!("Domain doesn't exist");
         create_domain_row(conn, domain).await?;
 
         Ok(())
@@ -350,7 +358,7 @@ pub(crate) async fn add_domain(conn: &Connection, domain: Domain) -> Result<(), 
 }
 
 /// Add a pending domain to the pending domains table
-#[instrument]
+#[instrument(err)]
 pub(crate) async fn add_pending_domain(
     db_state: &DBState,
     domain: DetectedDomain,
@@ -368,6 +376,7 @@ pub(crate) async fn add_pending_domain(
         .await?;
 
     let row_id = if let Some(row) = rows.next().await? {
+        trace!("Got row");
         row.get::<i64>(0)?
     } else {
         return Err(DatabaseError::NoRow);
@@ -387,7 +396,7 @@ pub(crate) async fn add_pending_domain(
 }
 
 /// Add a Vec of pending domains to the pending domains table
-#[instrument(skip(domains))]
+#[instrument(skip(domains), fields(domains_len=domains.len()), err)]
 pub(crate) async fn add_pending_domains(
     db_state: &DBState,
     domains: Vec<DetectedDomain>,
@@ -413,6 +422,7 @@ pub(crate) async fn add_pending_domains(
         .await?;
 
         let row_id = tx.last_insert_rowid();
+        trace!(domain=?domain, "Row Id is {}", row_id);
         domains_with_ids.push(DetectedDomainWithId { domain, row_id });
     }
 
@@ -430,7 +440,7 @@ pub(crate) async fn add_pending_domains(
 }
 
 /// Get at max some amount of pending domains from the pending domains table
-#[instrument(skip(conn))]
+#[instrument(skip(conn), err)]
 async fn get_pending_from_db(
     conn: &Connection,
     amount: u64,
@@ -445,6 +455,8 @@ async fn get_pending_from_db(
     let results = rows
         .into_stream()
         .filter_map(|row| async move {
+            trace!(row=?row, "Filtering row");
+
             if row.is_err() {
                 error!("Failed to get row: {}", row.err().unwrap());
                 return None;
@@ -456,9 +468,11 @@ async fn get_pending_from_db(
             let row_id = row.get::<i64>(0)?;
             let url_str = row.get::<String>(1)?;
             let collector_data = row.get::<String>(2)?;
+            trace!(row_id=row_id, url_str=url_str, collector_data_str=collector_data, "Got data");
 
             let url = Url::parse(&url_str)?;
             let collector_info: DomainCollectorInfo = serde_json::from_str(&collector_data)?;
+            trace!(row_id=row_id, url=?url, collector_info=?collector_info, "Parsed to struct");
 
             Ok::<DetectedDomainWithId, DatabaseError>(DetectedDomainWithId {
                 domain: DetectedDomain {
@@ -488,7 +502,7 @@ async fn get_pending_from_db(
 }
 
 /// Get pending domains from db, memory, or both depending on settings
-#[instrument]
+#[instrument(err)]
 pub(crate) async fn get_pending_domains(
     db_state: &DBState,
     amount: u64,
@@ -516,7 +530,7 @@ pub(crate) async fn get_pending_domains(
     }
 }
 
-#[instrument(skip_all, fields(domain_amount=domain_ids.len()))]
+#[instrument(skip_all, fields(domain_amount=domain_ids.len()), err)]
 pub(crate) async fn remove_pending_domains(
     conn: &Connection,
     domain_ids: Vec<i64>,

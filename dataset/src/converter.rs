@@ -11,7 +11,7 @@ use icann_rdap_client::prelude::MemoryBootstrapStore;
 use libsql::Connection;
 use rayon::prelude::*;
 use thiserror::Error;
-use tracing::{error, instrument};
+use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 use whois_rust::WhoIs;
 
@@ -40,6 +40,7 @@ async fn check_domains_exist(
     // Convert the pending domains into actual domain entries
     let results = iter(domains)
         .map(|d| async move {
+            trace!(domain=?d, "Checking if exists");
             let exists_res = check_exists(conn, &d.domain.url).await;
 
             if exists_res.is_err() {
@@ -63,8 +64,10 @@ async fn check_domains_exist(
         let (row, d) = result;
         // May be good in future to use the row, although it could be updated by the time we process it
         if row.is_some() {
+            trace!(domain=?d, "Exists");
             modify.push(d);
         } else {
+            trace!(domain=?d, "Doesn't exists");
             add.push(d);
         }
     }
@@ -82,12 +85,15 @@ async fn get_info_for_domains(
     // Add whois/rdap info to domains that aren't already in the database
     let domains_to_add = iter(domains.into_iter())
         .map(|domain| async move {
+            trace!(domain=?domain, "Getting info");
             let url = domain.domain.url;
             let res = get_whois_domain(whois_client, url.clone()).await;
+            trace!(url=?url, row_id=domain.row_id, "Whois search result: {:?}", res);
 
             // If rdap (and its google tlds) won't have whois info
             if res.is_err() {
                 if let Err(WhoIsError::NoWhois) = res {
+                    trace!(url=?url, row_id=domain.row_id, "Domain doesn't have whois info");
                     // Get rdap info for domain
                     let rdap = rdap_client
                         .get_rdap_data(url.clone())
@@ -125,7 +131,7 @@ async fn get_info_for_domains(
                 match result {
                     Ok(domain) => Some(domain),
                     Err((url, err)) => {
-                        error!("Failed to get domain info for domain {}: {}", url, err);
+                        error!(url=?url, "Failed to get domain info for domain: {}", err);
                         None
                     }
                 }
@@ -147,6 +153,7 @@ async fn add_domains_to_db(
 ) -> Vec<Result<i64, ConvertErrorWithUrl>> {
     iter(domains)
         .map(|domain| async move {
+            trace!(domain=?domain, "Adding domain to db");
             let cloned_url = domain.domain.url.clone();
 
             let add_res = add_domain(conn, domain.domain.clone()).await;
@@ -156,6 +163,7 @@ async fn add_domains_to_db(
 
                 match err {
                     DatabaseError::RowAlreadyExists => {
+                        warn!(domain=?domain, "Row already exists even though in new vec");
                         update_domain(
                             conn,
                             domain
@@ -170,6 +178,7 @@ async fn add_domains_to_db(
                 }
             }
 
+            trace!(row_id=domain.row_id, "Successfully added domain to db");
             Ok::<i64, ConvertErrorWithUrl>(domain.row_id)
         })
         .buffer_unordered(10) // Process up to 10 concurrently
@@ -213,12 +222,10 @@ pub async fn convert_domains(
 
     let mut modified_rows_to_delete = iter(modify.into_iter())
         .map(|domain| async move {
-            let url = domain.domain.url.clone();
-
             let res = update_domain(conn, domain.domain).await;
 
             if res.is_err() {
-                error!("Failed to modify domain {}: {}", url, res.err().unwrap());
+                error!(row_id=domain.row_id, "Failed to modify domain: {}", res.err().unwrap());
 
                 None
             } else {

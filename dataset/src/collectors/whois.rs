@@ -1,5 +1,5 @@
 use thiserror::Error;
-use tracing::instrument;
+use tracing::{debug, instrument, trace};
 use url::Url;
 use whois_rust::{WhoIs, WhoIsLookupOptions};
 
@@ -27,11 +27,14 @@ pub(crate) struct WhoIsInfo {
     pub(crate) whois_data: String,
 }
 
-#[instrument]
+#[instrument(skip(whois), err)]
 pub(crate) async fn get_whois_domain(whois: &WhoIs, url: Url) -> Result<WhoIsInfo, WhoIsError> {
+    trace!("Getting whois info");
     let domain = url.domain().ok_or(WhoIsError::NoRoot(url.clone()))?;
+    debug!("Domain: {}", domain);
 
     let server = whois.get_server_by_tld(domain);
+    trace!("Server: {:?}", server);
 
     if server.is_none() {
         return Err(WhoIsError::NoWhois);
@@ -42,6 +45,7 @@ pub(crate) async fn get_whois_domain(whois: &WhoIs, url: Url) -> Result<WhoIsInf
     let mut options = WhoIsLookupOptions::from_string(domain)?;
 
     options.server = Some(server.clone());
+    trace!("Whois lookup options: {:?}", options);
 
     let whois_data_res = whois.lookup_async(options).await;
 

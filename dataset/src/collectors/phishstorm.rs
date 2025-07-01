@@ -12,7 +12,7 @@ use std::fs::File;
 use std::io::{Cursor, Read};
 use std::time::Instant;
 use thiserror::Error;
-use tracing::{Instrument, Level, debug, error, info, info_span, instrument, warn};
+use tracing::{Instrument, Level, debug, error, info, info_span, instrument, warn, trace};
 use url::Url;
 use zip::ZipArchive;
 
@@ -78,6 +78,7 @@ pub(crate) async fn download_phishstorm_dataset(
 #[instrument(err)]
 pub(crate) async fn get_data_local() -> Result<PhishStormDataset, PhishStormError> {
     let file = tokio::fs::File::open("./phishstorm.csv").await?;
+    debug!("Read phishstorm csv locally");
 
     read_csv_to_data(file.into_std().await)
 }
@@ -93,13 +94,16 @@ fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormEr
         .filter_map(|(line, row)| {
             // 18232-18348 contain invalid data, 19582 (19605 in the csv) contains an invalid domain name
             if (line < 18231 || line > 18349) && line != 19582 {
+                trace!(row_res=?row, "{} is valid line", line);
                 Some(row)
             } else {
+                trace!(row_res=?row, "{} is invalid line", line);
                 None
             }
         })
     {
         let record: PhishStormEntry = result?;
+        trace!("Valid record: {}", record.domain);
         data.push(record);
     }
 
@@ -107,12 +111,17 @@ fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormEr
 }
 
 impl ToDetectedDomain for PhishStormDataset {
-    #[instrument(skip(self))]
+    #[instrument(skip(self), err)]
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.into_par_iter()
             .map(|d| {
+                let parse_span = info_span!("phishstorm_to_detected_domains", domain=d.domain);
+                let _enter = parse_span.enter();
+
                 let url_str = format!("https://{}", d.domain);
+                debug!("Parsing: {}", url_str);
                 let url_res = url_str.parse::<Url>();
+                trace!("URL Result: {:?}", url_res);
 
                 // Due to parallelism it's really hard to tell which domain errored
                 if url_res.is_err() {

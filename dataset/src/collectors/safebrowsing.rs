@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::instrument;
+use tracing::{debug, instrument, trace};
 
 pub(crate) struct SafebrowsingClient {
     api_key: String,
@@ -86,7 +86,7 @@ impl SafebrowsingClient {
     }
 
     /// Returns a list of unsafe urls
-    #[instrument(skip(self))]
+    #[instrument(skip(self), err)]
     pub async fn get_url_batch_threat(
         &self,
         urls: Vec<String>,
@@ -94,10 +94,14 @@ impl SafebrowsingClient {
         let mut req_data = REQUEST.clone();
         req_data.threat_info.threat_entries = urls
             .iter()
-            .map(|url| ThreatEntry {
-                url: url.to_string(),
+            .map(|url| {
+                trace!(url=url, "Mapping url to GSB threat entry");
+                ThreatEntry {
+                    url: url.to_string(),
+                }
             })
             .collect();
+        debug!("Mapped urls to threat entries");
 
         let res = self
             .client
@@ -107,14 +111,17 @@ impl SafebrowsingClient {
             .send()
             .await?
             .error_for_status()?;
+        debug!("Sent request to safe browsing api without error");
 
         let data_res: Result<SafebrowsingResponse, reqwest::Error> = res.json().await;
         if data_res.is_err() {
             // No threats
+            debug!("No threats were found");
             return Ok(Vec::new());
         }
 
         let data = data_res?;
+        debug!("Able to get GSB response as json");
 
         Ok(data
             .matches
