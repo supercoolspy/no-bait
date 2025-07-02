@@ -113,7 +113,8 @@ impl ToDetectedDomain for PhishTankDataset {
         self.into_par_iter()
             .filter(|datapoint| datapoint.verified == "yes")
             .map(|domain_info| {
-                let parse_span = info_span!("phishtank_to_detected_domains", domain=domain_info.url);
+                let parse_span =
+                    info_span!("phishtank_to_detected_domains", domain = domain_info.url);
                 let _enter = parse_span.enter();
 
                 debug!("Parsing {}", domain_info.url);

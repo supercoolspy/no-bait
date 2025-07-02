@@ -12,7 +12,7 @@ use std::fs::File;
 use std::io::{Cursor, Read};
 use std::time::Instant;
 use thiserror::Error;
-use tracing::{Instrument, Level, debug, error, info, info_span, instrument, warn, trace};
+use tracing::{Instrument, Level, debug, error, info, info_span, instrument, trace, warn};
 use url::Url;
 use zip::ZipArchive;
 
@@ -115,7 +115,7 @@ impl ToDetectedDomain for PhishStormDataset {
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.into_par_iter()
             .map(|d| {
-                let parse_span = info_span!("phishstorm_to_detected_domains", domain=d.domain);
+                let parse_span = info_span!("phishstorm_to_detected_domains", domain = d.domain);
                 let _enter = parse_span.enter();
 
                 let url_str = format!("https://{}", d.domain);

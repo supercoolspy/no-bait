@@ -178,7 +178,7 @@ async fn add_domains_to_db(
                 }
             }
 
-            trace!(row_id=domain.row_id, "Successfully added domain to db");
+            trace!(row_id = domain.row_id, "Successfully added domain to db");
             Ok::<i64, ConvertErrorWithUrl>(domain.row_id)
         })
         .buffer_unordered(10) // Process up to 10 concurrently
@@ -199,6 +199,9 @@ pub async fn convert_domains(
     let conn = db_state.get_connection();
 
     let (add, modify) = check_domains_exist(conn, domains).await;
+    let add_len = add.len();
+    let mod_len = modify.len();
+    debug!("Found {} domains to add and {} to modify with a total of {}", add_len, mod_len, add_len + mod_len);
 
     // Attempt to add new domains to the db
     let add_domain_results = add_domains_to_db(
@@ -225,7 +228,11 @@ pub async fn convert_domains(
             let res = update_domain(conn, domain.domain).await;
 
             if res.is_err() {
-                error!(row_id=domain.row_id, "Failed to modify domain: {}", res.err().unwrap());
+                error!(
+                    row_id = domain.row_id,
+                    "Failed to modify domain: {}",
+                    res.err().unwrap()
+                );
 
                 None
             } else {

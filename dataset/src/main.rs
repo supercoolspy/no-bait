@@ -24,6 +24,8 @@ use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use std::sync::Arc;
 use tracing::debug;
+use tracing::level_filters::LevelFilter;
+use tracing::log::Level;
 use whois_rust::WhoIs;
 
 const WHOIS_SERVERS: &str = include_str!("../assets/servers.json");
@@ -108,7 +110,11 @@ fn get_reqwest_middleware_client() -> Arc<ClientWithMiddleware> {
 async fn main() {
     tracing_subscriber::fmt()
         .with_line_number(true)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .with_thread_ids(true)
         .init();
 

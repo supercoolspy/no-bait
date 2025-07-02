@@ -468,7 +468,12 @@ async fn get_pending_from_db(
             let row_id = row.get::<i64>(0)?;
             let url_str = row.get::<String>(1)?;
             let collector_data = row.get::<String>(2)?;
-            trace!(row_id=row_id, url_str=url_str, collector_data_str=collector_data, "Got data");
+            trace!(
+                row_id = row_id,
+                url_str = url_str,
+                collector_data_str = collector_data,
+                "Got data"
+            );
 
             let url = Url::parse(&url_str)?;
             let collector_info: DomainCollectorInfo = serde_json::from_str(&collector_data)?;
@@ -502,26 +507,34 @@ async fn get_pending_from_db(
 }
 
 /// Get pending domains from db, memory, or both depending on settings
-#[instrument(err)]
+#[instrument(skip_all, err)]
 pub(crate) async fn get_pending_domains(
     db_state: &DBState,
     amount: u64,
 ) -> Result<Vec<DetectedDomainWithId>, DatabaseError> {
     if db_state.db_only {
+        debug!("Database only, getting from db");
         get_pending_from_db(db_state.get_connection(), amount).await
     } else {
+        debug!("Database and Memory, getting from memory first");
         let pending_in_memory = db_state.get_pending_count().await;
+        trace!("There are {} domains pending in memory", pending_in_memory);
 
         if pending_in_memory < amount as usize {
-            let amount_from_db = (amount as usize - pending_in_memory);
+            debug!("There are less domains pending in memory than the amount of domains requested, using db");
+            let amount_from_db = amount as usize - pending_in_memory;
+            trace!("Getting {} domains from db", amount_from_db);
 
             let mut pending_domains = db_state.process_pending_batch(amount as usize).await;
+            trace!("Got {} domains from memory", pending_domains.len());
 
             let mut from_db =
                 get_pending_from_db(db_state.get_connection(), amount_from_db as u64).await?;
+            trace!("Got {} domains from db", from_db.len());
 
             pending_domains.append(&mut from_db);
             drop(from_db);
+            trace!("Got {} total pending domains", pending_domains.len());
 
             return Ok(pending_domains);
         }

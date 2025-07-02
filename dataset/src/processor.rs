@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use whois_rust::WhoIs;
 
 pub(super) fn create_processor(
@@ -26,13 +26,13 @@ pub(super) fn create_processor(
 
                 let amount = amount_op.unwrap();
 
-                debug!("Processing {} domains", amount);
+                error!("Processing {} domains", amount);
                 process_domains(&db_state, &whois, &rdap_client, &use_gsb, amount).await
             } else {
                 // Timeout hit, check from db
                 let amount = 1000;
 
-                debug!("Processing {} domains", amount);
+                error!("Processing {} domains", amount);
                 process_domains(&db_state, &whois, &rdap_client, &use_gsb, amount).await;
             };
         }
@@ -63,6 +63,8 @@ async fn process_domains(
         debug!("Empty pending domain list, returning");
         return;
     }
+
+    info!("Got {} pending domains", pending.len());
 
     let rows_to_delete = convert_domains(db_state, whois, rdap_client, pending).await;
 

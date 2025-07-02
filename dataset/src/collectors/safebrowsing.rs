@@ -95,7 +95,7 @@ impl SafebrowsingClient {
         req_data.threat_info.threat_entries = urls
             .iter()
             .map(|url| {
-                trace!(url=url, "Mapping url to GSB threat entry");
+                trace!(url = url, "Mapping url to GSB threat entry");
                 ThreatEntry {
                     url: url.to_string(),
                 }
