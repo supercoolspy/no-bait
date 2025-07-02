@@ -513,7 +513,7 @@ pub(crate) async fn get_pending_domains(
         let pending_in_memory = db_state.get_pending_count().await;
 
         if pending_in_memory < amount as usize {
-            let amount_from_db = pending_in_memory - amount as usize;
+            let amount_from_db = (amount as usize - pending_in_memory);
 
             let mut pending_domains = db_state.process_pending_batch(amount as usize).await;
 

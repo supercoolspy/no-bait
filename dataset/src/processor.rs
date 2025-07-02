@@ -17,7 +17,7 @@ pub(super) fn create_processor(
     use_gsb: Arc<bool>,
     mut channel_receiver: Receiver<usize>,
 ) {
-    thread::spawn(|| async move {
+    tokio::spawn(async move {
         loop {
             if let Ok(amount_op) = timeout(Duration::from_secs(10), channel_receiver.recv()).await {
                 if amount_op.is_none() {
