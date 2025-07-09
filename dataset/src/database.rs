@@ -1,7 +1,7 @@
 use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use futures::StreamExt;
 use libsql::params::IntoValue;
-use libsql::{Builder, Connection, Row};
+use libsql::{Builder, Connection, Row, params};
 use moka::future::Cache as MemoryCache;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Error};
@@ -543,6 +543,18 @@ pub(crate) async fn get_pending_domains(
 
         Ok(db_state.process_pending_batch(amount as usize).await)
     }
+}
+
+#[instrument(skip_all, err)]
+pub async fn get_amount_pending_db(conn: &Connection) -> Result<u64, DatabaseError> {
+    let row = conn
+        .query("SELECT COUNT(id) AS cnt FROM pending_domains", params!([]))
+        .await?
+        .next()
+        .await?
+        .ok_or(DatabaseError::NoRow)?;
+
+    Ok(row.get(0)?)
 }
 
 #[instrument(skip_all, fields(domain_amount=domain_ids.len()), err)]

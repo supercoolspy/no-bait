@@ -1,6 +1,7 @@
 use crate::collectors::ToDetectedDomain;
 use crate::collectors::phishtank::{PhishTankError, get_data_local, get_latest_data};
 use crate::database::{DBState, add_pending_domains};
+use crate::processor::wait_until_finished;
 use clap::Args;
 use reqwest_middleware::ClientWithMiddleware;
 use tracing::instrument;
@@ -26,6 +27,7 @@ pub(crate) async fn phishtank_command(
 
     if !no_analysis {
         add_pending_domains(db_state, dataset.to_detected_domains()?).await?;
+        wait_until_finished(db_state).await?;
     }
 
     Ok(())

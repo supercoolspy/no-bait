@@ -1,14 +1,35 @@
 use crate::collectors::rdap::RDAPClient;
 use crate::converter::convert_domains;
-use crate::database::{DBState, get_pending_domains, remove_pending_domains};
+use crate::database::{
+    DBState, DatabaseError, get_amount_pending_db, get_pending_domains, remove_pending_domains,
+};
 use icann_rdap_client::iana::MemoryBootstrapStore;
 use std::sync::Arc;
 use std::thread;
+use std::thread::sleep;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
 use whois_rust::WhoIs;
+
+pub(crate) async fn wait_until_finished(db_state: &DBState) -> Result<(), DatabaseError> {
+    let pending_memory = db_state.get_pending_count().await;
+
+    if pending_memory > 0 {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        Box::pin(wait_until_finished(db_state)).await?;
+    };
+
+    let pending_from_db = get_amount_pending_db(db_state.get_connection()).await?;
+
+    if pending_from_db > 0 {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        Box::pin(wait_until_finished(db_state)).await?;
+    }
+
+    Ok(())
+}
 
 pub(super) fn create_processor(
     db_state: Arc<DBState>,

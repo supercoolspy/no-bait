@@ -1,6 +1,7 @@
 use crate::collectors::ToDetectedDomain;
 use crate::collectors::phishstorm::{PhishStormError, download_phishstorm_dataset, get_data_local};
 use crate::database::{DBState, add_pending_domains};
+use crate::processor::wait_until_finished;
 use clap::Args;
 use reqwest_middleware::ClientWithMiddleware;
 use tracing::instrument;
@@ -26,6 +27,7 @@ pub(crate) async fn phishstorm_command(
 
     if !no_analysis {
         add_pending_domains(db_state, dataset.to_detected_domains()?).await?;
+        wait_until_finished(db_state).await?;
     }
 
     Ok(())
