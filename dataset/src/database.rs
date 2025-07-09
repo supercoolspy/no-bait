@@ -521,7 +521,9 @@ pub(crate) async fn get_pending_domains(
         trace!("There are {} domains pending in memory", pending_in_memory);
 
         if pending_in_memory < amount as usize {
-            debug!("There are less domains pending in memory than the amount of domains requested, using db");
+            debug!(
+                "There are less domains pending in memory than the amount of domains requested, using db"
+            );
             let amount_from_db = amount as usize - pending_in_memory;
             trace!("Getting {} domains from db", amount_from_db);
 

@@ -99,6 +99,7 @@ async fn get_info_for_domains(
                         .get_rdap_data(url.clone())
                         .await
                         .map_err(|e| (url.clone(), ConverterError::from(e)))?;
+                    trace!("RDAP Search Results: {:?}", rdap);
 
                     Ok(DomainWithId {
                         domain: Domain {
@@ -128,6 +129,7 @@ async fn get_info_for_domains(
         .buffer_unordered(10)
         .filter_map(
             |result: Result<DomainWithId, ConvertErrorWithUrl>| async move {
+                trace!(result=?result, "Checking result of domain");
                 match result {
                     Ok(domain) => Some(domain),
                     Err((url, err)) => {
@@ -201,7 +203,12 @@ pub async fn convert_domains(
     let (add, modify) = check_domains_exist(conn, domains).await;
     let add_len = add.len();
     let mod_len = modify.len();
-    debug!("Found {} domains to add and {} to modify with a total of {}", add_len, mod_len, add_len + mod_len);
+    debug!(
+        "Found {} domains to add and {} to modify with a total of {}",
+        add_len,
+        mod_len,
+        add_len + mod_len
+    );
 
     // Attempt to add new domains to the db
     let add_domain_results = add_domains_to_db(
@@ -209,6 +216,8 @@ pub async fn convert_domains(
         get_info_for_domains(add, whois_client, rdap_client).await,
     )
     .await;
+
+    debug!("Got to rows to delete");
 
     let mut rows_to_delete = add_domain_results
         .into_par_iter()
@@ -248,6 +257,8 @@ pub async fn convert_domains(
 
     rows_to_delete.append(&mut modified_rows_to_delete);
     drop(modified_rows_to_delete);
+
+    debug!("{} Rows to delete", rows_to_delete.len());
 
     rows_to_delete
 }

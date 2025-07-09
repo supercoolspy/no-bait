@@ -115,17 +115,18 @@ impl ToDetectedDomain for PhishStormDataset {
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.into_par_iter()
             .map(|d| {
-                let parse_span = info_span!("phishstorm_to_detected_domains", domain = d.domain);
+                let domain = d.domain.replace("'", "");
+                let parse_span = info_span!("phishstorm_to_detected_domains", domain = domain);
                 let _enter = parse_span.enter();
 
-                let url_str = format!("https://{}", d.domain);
+                let url_str = format!("https://{}", domain);
                 debug!("Parsing: {}", url_str);
                 let url_res = url_str.parse::<Url>();
                 trace!("URL Result: {:?}", url_res);
 
                 // Due to parallelism it's really hard to tell which domain errored
                 if url_res.is_err() {
-                    error!("Failed to parse {}", d.domain);
+                    error!("Failed to parse {}", domain);
                     return Err(DetectedDomainParseError::Url(url_res.err().unwrap()));
                 }
 
