@@ -12,6 +12,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
 use whois_rust::WhoIs;
+use crate::collectors::whois::WhoisClient;
 
 pub(crate) async fn wait_until_finished(db_state: &DBState) -> Result<(), DatabaseError> {
     let pending_memory = db_state.get_pending_count().await;
@@ -33,7 +34,7 @@ pub(crate) async fn wait_until_finished(db_state: &DBState) -> Result<(), Databa
 
 pub(super) fn create_processor(
     db_state: Arc<DBState>,
-    whois: Arc<WhoIs>,
+    whois: Arc<WhoisClient>,
     rdap_client: Arc<RDAPClient>,
     use_gsb: Arc<bool>,
     mut channel_receiver: Receiver<usize>,
@@ -62,7 +63,7 @@ pub(super) fn create_processor(
 
 async fn process_domains(
     db_state: &DBState,
-    whois: &WhoIs,
+    whois: &WhoisClient,
     rdap_client: &RDAPClient,
     use_gsb: &bool,
     amount: usize,

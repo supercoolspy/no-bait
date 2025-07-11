@@ -8,7 +8,7 @@ use crate::collectors::rdap::RDAPClient;
 use crate::database::init_db;
 use crate::processor::create_processor;
 use clap::{Parser, Subcommand, arg};
-use collectors::{safebrowsing::SafebrowsingClient, whois::get_whois_domain};
+use collectors::{safebrowsing::SafebrowsingClient};
 use commands::{
     phishstorm::{PhishStormCommand, phishstorm_command},
     phishtank::{PhishTankCommand, phishtank_command},
@@ -27,6 +27,7 @@ use tracing::debug;
 use tracing::level_filters::LevelFilter;
 use tracing::log::Level;
 use whois_rust::WhoIs;
+use crate::collectors::whois::WhoisClient;
 
 const WHOIS_SERVERS: &str = include_str!("../assets/servers.json");
 
@@ -56,13 +57,6 @@ enum Commands {
     PhishTank(PhishTankCommand),
     #[command(name = "phishstorm")]
     PhishStorm(PhishStormCommand),
-}
-
-fn get_whois_client() -> Arc<WhoIs> {
-    let whois = WhoIs::from_string(WHOIS_SERVERS).expect("Should be able to load servers");
-    debug!("Loaded Whois server data");
-
-    Arc::new(whois)
 }
 
 fn get_gsb_client(client: Arc<ClientWithMiddleware>) -> SafebrowsingClient {
@@ -134,9 +128,9 @@ async fn main() {
 
     let db_state = Arc::new(db_state);
 
-    let whois = get_whois_client();
+    let whois = Arc::new(WhoisClient::new(args.db_only, db_state.clone()).await);
 
-    let rdap_client = Arc::new(RDAPClient::new());
+    let rdap_client = Arc::new(RDAPClient::new(args.db_only, db_state.clone()).await);
 
     create_processor(
         db_state.clone(),

@@ -1,8 +1,10 @@
 use clap::Args;
 use tracing::instrument;
+use url::Url;
 use whois_rust::WhoIs;
 
-use crate::{collectors::whois::WhoIsError, get_whois_domain};
+use crate::{collectors::whois::WhoIsError};
+use crate::collectors::whois::WhoisClient;
 
 #[derive(Args, Debug)]
 pub(crate) struct WhoIsCommand {
@@ -10,13 +12,15 @@ pub(crate) struct WhoIsCommand {
 }
 
 #[instrument(skip(whois))]
-pub(crate) async fn whois_command(whois: &WhoIs, command: WhoIsCommand) -> Result<(), WhoIsError> {
-    let info = get_whois_domain(whois, command.website.parse().unwrap()).await?;
+pub(crate) async fn whois_command(whois: &WhoisClient, command: WhoIsCommand) -> Result<(), WhoIsError> {
+    let website: Url = command.website.parse().unwrap();
+
+    let whois_info = whois.get_whois_domain(&website).await?;
 
     println!(
         "Domain: {}\nWhois Data: {}",
-        info.url.as_str(),
-        info.whois_data
+        website.as_str(),
+        whois_info
     );
 
     Ok(())

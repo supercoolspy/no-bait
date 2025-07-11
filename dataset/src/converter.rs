@@ -1,5 +1,5 @@
 use crate::collectors::rdap::{RDAPClient, RDAPError};
-use crate::collectors::whois::{WhoIsError, get_whois_domain};
+use crate::collectors::whois::{WhoIsError, WhoisClient};
 use crate::database::{
     DBState, DatabaseError, DetectedDomainWithId, Domain, DomainInfo, DomainWithId, add_domain,
     check_exists, update_domain,
@@ -79,7 +79,7 @@ async fn check_domains_exist(
 #[instrument(skip_all, fields(domains_len=domains.len()))]
 async fn get_info_for_domains(
     domains: Vec<DetectedDomainWithId>,
-    whois_client: &WhoIs,
+    whois_client: &WhoisClient,
     rdap_client: &RDAPClient,
 ) -> impl Iterator<Item = DomainWithId> {
     // Add whois/rdap info to domains that aren't already in the database
@@ -87,7 +87,7 @@ async fn get_info_for_domains(
         .map(|domain| async move {
             trace!(domain=?domain, "Getting info");
             let url = domain.domain.url;
-            let res = get_whois_domain(whois_client, url.clone()).await;
+            let res = whois_client.get_whois_domain(&url).await;
             trace!(url=?url, row_id=domain.row_id, "Whois search result: {:?}", res);
 
             // If rdap (and its google tlds) won't have whois info
@@ -104,7 +104,7 @@ async fn get_info_for_domains(
                     Ok(DomainWithId {
                         domain: Domain {
                             url,
-                            whois_info: DomainInfo::RDAPInfo(rdap.to_string()),
+                            whois_info: DomainInfo::RDAPInfo(rdap),
                             collectors: vec![domain.domain.collector_info],
                         },
                         row_id: domain.row_id,
@@ -119,7 +119,7 @@ async fn get_info_for_domains(
                 Ok::<DomainWithId, (Url, ConverterError)>(DomainWithId {
                     domain: Domain {
                         url,
-                        whois_info: DomainInfo::WhoisInfo(whois.whois_data),
+                        whois_info: DomainInfo::WhoisInfo(whois),
                         collectors: vec![domain.domain.collector_info],
                     },
                     row_id: domain.row_id,
@@ -194,7 +194,7 @@ async fn add_domains_to_db(
 #[instrument(skip(whois_client, rdap_client, domains), fields(domains_len=domains.len()))]
 pub async fn convert_domains(
     db_state: &DBState,
-    whois_client: &WhoIs,
+    whois_client: &WhoisClient,
     rdap_client: &RDAPClient,
     domains: Vec<DetectedDomainWithId>,
 ) -> Vec<i64> {

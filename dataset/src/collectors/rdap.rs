@@ -11,6 +11,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, instrument, trace};
 use url::Url;
+use crate::database::{Cache, DBState, DatabaseError};
 
 #[derive(Error, Debug)]
 pub enum RDAPError {
@@ -22,6 +23,9 @@ pub enum RDAPError {
 
     #[error("RDAP Client error: {0}")]
     RDAPClient(#[from] icann_rdap_client::RdapClientError),
+
+    #[error("Database (Cache) Error: {0}")]
+    DatabaseError(#[from] DatabaseError),
 
     #[error("No Root Domain Parsable {0}")]
     NoRoot(Url),
@@ -36,10 +40,11 @@ pub enum RDAPError {
 pub struct RDAPClient {
     rdap_client: icann_rdap_client::http::Client,
     store: MemoryBootstrapStore,
+    cache: Cache<RdapResponse>
 }
 
 impl RDAPClient {
-    pub fn new() -> Self {
+    pub async fn new(memory: bool, db_state: Arc<DBState>) -> Self {
         let config = ClientConfig::default();
 
         let client = create_client(&config).expect("Should be able to create client");
@@ -49,6 +54,7 @@ impl RDAPClient {
         Self {
             rdap_client: client,
             store,
+            cache: Cache::new(memory, db_state, "rdap".to_string()).await.expect("Should be able to create cache")
         }
     }
 
@@ -56,6 +62,15 @@ impl RDAPClient {
     #[instrument(skip(self), err)]
     pub(crate) async fn get_rdap_data(&self, url: Url) -> Result<RdapResponse, RDAPError> {
         let query = QueryType::from_str(url.domain().ok_or(RDAPError::NoRoot(url.clone()))?)?;
+
+        trace!("Checking if response in cache");
+        let cache_value = (&self.cache).get_from_cache(url.to_string()).await?;
+
+        if cache_value.is_some() {
+            trace!("RDAP Response in cache");
+            return Ok(cache_value.expect("Cache value should exist"))
+        }
+        trace!("RDAP Response not in cache");
 
         let response = rdap_bootstrapped_request(&query, &self.rdap_client, &self.store, |reg| {
             trace!("fetching {reg:?}")
@@ -83,6 +98,8 @@ impl RDAPClient {
 
             let res = rdap_url_request(&location, &self.rdap_client).await?;
             let data = res.rdap;
+
+            (&self.cache).add_to_cache(url.to_string(), &data).await?;
 
             Ok(data)
         } else {

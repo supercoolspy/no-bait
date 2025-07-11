@@ -9,6 +9,8 @@ use std::mem::discriminant;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
+use icann_rdap_common::prelude::RdapResponse;
+use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -106,7 +108,7 @@ impl DBState {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum DomainInfo {
     WhoisInfo(String),
-    RDAPInfo(String),
+    RDAPInfo(RdapResponse),
 }
 
 /// A processed domain that can be added to the training set
@@ -132,20 +134,35 @@ impl TryInto<DetectedDomain> for Domain {
     }
 }
 
-struct Cache<T: Display + FromStr> {
+pub struct Cache<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> {
     memory_cache: Option<MemoryCache<String, T>>,
     db_state: Arc<DBState>,
     name: String,
 }
-impl<T: Display + FromStr + Clone + Send + Sync + 'static> Cache<T>
-where
-    <T as FromStr>::Err: std::error::Error,
-{
-    pub async fn add_to_cache(&self, key: String, value: T) -> Result<(), DatabaseError> {
+
+impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
+    pub(crate) async fn new(memory: bool, db_state: Arc<DBState>, name: String) -> Result<Cache<T>, DatabaseError> {
+        db_state.get_connection().execute("CREATE TABLE IF NOT EXISTS ? (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL", &[format!("cache_{}", name)]).await?;
+
+        let instance = Self {
+            memory_cache: if memory {
+                Some(MemoryCache::builder().build())
+            } else { None },
+            db_state,
+            name
+        };
+
+        Ok(instance)
+    }
+}
+
+impl<T: Serialize + DeserializeOwned + Clone + Send + Sync> Cache<T> {
+    /// Adds a value to the cache. If using a memory cache, the value is cloned
+    pub async fn add_to_cache(&self, key: String, value: &T) -> Result<(), DatabaseError> {
         if self.using_memory_cache() {
             let cache = self.get_memory_cache();
 
-            cache.insert(key, value).await;
+            cache.insert(key, value.clone()).await;
         } else {
             self.db_state
                 .get_connection()
@@ -154,13 +171,15 @@ where
                         "REPLACE INTO cache_{} (key, value) VALUES (?, ?)",
                         &self.name
                     ),
-                    (key, value.to_string()),
+                    (key, serde_json::to_string(&value)?),
                 )
                 .await?;
         }
 
         Ok(())
     }
+
+    /// Gets whether an item exists in the cache
     pub async fn get_from_cache(&self, key: String) -> Result<Option<T>, DatabaseError> {
         if self.using_memory_cache() {
             let memory_res = self.get_memory_cache().get(&key).await;
@@ -192,7 +211,7 @@ where
         let row = row.unwrap();
 
         Ok(Some(
-            T::from_str(row.get_str(0)?).map_err(|e| DatabaseError::ParseStr)?,
+            serde_json::from_str(&row.get::<String>(0)?)?
         ))
     }
 
