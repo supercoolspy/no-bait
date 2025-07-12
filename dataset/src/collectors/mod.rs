@@ -23,6 +23,7 @@ pub(crate) struct DomainCollectorInfo {
 pub enum CollectorSpecificInfo {
     PhishTank { phish_id: i64, ip: Option<IpAddr> },
     PhishStorm { ranking: u32 },
+    GoogleSafeBrowsing { category: Option<String> },
 }
 
 /// A domain that has been detected by one of the collectors, but has not been processed yet into the database format

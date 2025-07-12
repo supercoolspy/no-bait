@@ -1,5 +1,7 @@
 use std::sync::{Arc, LazyLock};
 
+use crate::collectors::{CollectorSpecificInfo, DomainCollectorInfo};
+use crate::database::{Cache, DBState};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -8,6 +10,7 @@ use tracing::{debug, instrument, trace};
 pub(crate) struct SafebrowsingClient {
     api_key: String,
     client: Arc<ClientWithMiddleware>,
+    cache: Cache<Option<CollectorSpecificInfo>>,
 }
 
 #[derive(Error, Debug)]
@@ -17,6 +20,9 @@ pub enum SafebrowsingError {
 
     #[error("Reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
+
+    #[error("No Threat Type even though Array has values")]
+    NoThreatType,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -81,26 +87,31 @@ static REQUEST: LazyLock<SafebrowsingRequest> = LazyLock::new(|| SafebrowsingReq
 });
 
 impl SafebrowsingClient {
-    pub fn new(client: Arc<ClientWithMiddleware>, api_key: String) -> Self {
-        Self { api_key, client }
+    pub async fn new(
+        client: Arc<ClientWithMiddleware>,
+        api_key: String,
+        memory: bool,
+        db_state: Arc<DBState>,
+    ) -> Self {
+        Self {
+            api_key,
+            client,
+            cache: Cache::new(memory, db_state, "google_safe_browsing".to_string())
+                .await
+                .expect("Should be able to create cache"),
+        }
     }
 
     /// Returns a list of unsafe urls
     #[instrument(skip(self), err)]
     pub async fn get_url_batch_threat(
         &self,
-        urls: Vec<String>,
-    ) -> Result<Vec<String>, SafebrowsingError> {
+        url: String,
+    ) -> Result<DomainCollectorInfo, SafebrowsingError> {
         let mut req_data = REQUEST.clone();
-        req_data.threat_info.threat_entries = urls
-            .iter()
-            .map(|url| {
-                trace!(url = url, "Mapping url to GSB threat entry");
-                ThreatEntry {
-                    url: url.to_string(),
-                }
-            })
-            .collect();
+        req_data.threat_info.threat_entries = vec![ThreatEntry {
+            url: url.to_string(),
+        }];
         debug!("Mapped urls to threat entries");
 
         let res = self
@@ -117,16 +128,31 @@ impl SafebrowsingClient {
         if data_res.is_err() {
             // No threats
             debug!("No threats were found");
-            return Ok(Vec::new());
+            return Ok(DomainCollectorInfo {
+                collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
+                    category: None,
+                },
+                phishing: false,
+            });
         }
 
         let data = data_res?;
         debug!("Able to get GSB response as json");
 
-        Ok(data
-            .matches
-            .iter()
-            .map(|m| m.threat.url.to_string())
-            .collect())
+        if data.matches.is_empty() {
+            Ok(DomainCollectorInfo {
+                collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
+                    category: None,
+                },
+                phishing: false,
+            })
+        } else {
+            Ok(DomainCollectorInfo {
+                collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
+                    category: data.matches.first().map(|m| m.threat_type.clone()),
+                },
+                phishing: false,
+            })
+        }
     }
 }

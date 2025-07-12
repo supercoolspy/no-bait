@@ -1,4 +1,5 @@
 use crate::collectors::rdap::RDAPClient;
+use crate::collectors::safebrowsing::SafebrowsingClient;
 use crate::collectors::whois::WhoisClient;
 use crate::converter::convert_domains;
 use crate::database::{
@@ -36,7 +37,7 @@ pub(super) fn create_processor(
     db_state: Arc<DBState>,
     whois: Arc<WhoisClient>,
     rdap_client: Arc<RDAPClient>,
-    use_gsb: Arc<bool>,
+    gsb_client: Arc<Option<SafebrowsingClient>>,
     mut channel_receiver: Receiver<usize>,
 ) {
     tokio::spawn(async move {
@@ -49,13 +50,13 @@ pub(super) fn create_processor(
                 let amount = amount_op.unwrap();
 
                 error!("Processing {} domains", amount);
-                process_domains(&db_state, &whois, &rdap_client, &use_gsb, amount).await
+                process_domains(&db_state, &whois, &rdap_client, &gsb_client, amount).await
             } else {
                 // Timeout hit, check from db
                 let amount = 1000;
 
                 error!("Processing {} domains", amount);
-                process_domains(&db_state, &whois, &rdap_client, &use_gsb, amount).await;
+                process_domains(&db_state, &whois, &rdap_client, &gsb_client, amount).await;
             };
         }
     });
@@ -65,7 +66,7 @@ async fn process_domains(
     db_state: &DBState,
     whois: &WhoisClient,
     rdap_client: &RDAPClient,
-    use_gsb: &bool,
+    gsb_client: &Option<SafebrowsingClient>,
     amount: usize,
 ) {
     let pending_res = get_pending_domains(db_state, amount as u64).await;
@@ -88,7 +89,7 @@ async fn process_domains(
 
     info!("Got {} pending domains", pending.len());
 
-    let rows_to_delete = convert_domains(db_state, whois, rdap_client, pending).await;
+    let rows_to_delete = convert_domains(db_state, whois, rdap_client, &gsb_client, pending).await;
 
     let remove_res = remove_pending_domains(db_state.get_connection(), rows_to_delete).await;
     if remove_res.is_err() {

@@ -1,4 +1,6 @@
+use crate::collectors::DomainCollectorInfo;
 use crate::collectors::rdap::{RDAPClient, RDAPError};
+use crate::collectors::safebrowsing::{SafebrowsingClient, SafebrowsingError};
 use crate::collectors::whois::{WhoIsError, WhoisClient};
 use crate::database::{
     DBState, DatabaseError, DetectedDomainWithId, Domain, DomainInfo, DomainWithId, add_domain,
@@ -24,6 +26,9 @@ pub enum ConverterError {
 
     #[error("RDAP Error: {0}")]
     Rdap(#[from] RDAPError),
+
+    #[error("Google Safebrowsing Error: {0}")]
+    GSB(#[from] SafebrowsingError),
 
     #[error("Database Error: {0}")]
     Database(#[from] DatabaseError),
@@ -81,49 +86,72 @@ async fn get_info_for_domains(
     domains: Vec<DetectedDomainWithId>,
     whois_client: &WhoisClient,
     rdap_client: &RDAPClient,
+    gsb_client: &Option<SafebrowsingClient>,
 ) -> impl Iterator<Item = DomainWithId> {
     // Add whois/rdap info to domains that aren't already in the database
     let domains_to_add = iter(domains.into_iter())
         .map(|domain| async move {
-            trace!(domain=?domain, "Getting info");
-            let url = domain.domain.url;
-            let res = whois_client.get_whois_domain(&url).await;
-            trace!(url=?url, row_id=domain.row_id, "Whois search result: {:?}", res);
+            let domain_res = async move {
+                trace!(domain=?domain, "Getting info");
+                let url = domain.domain.url;
+                let res = whois_client.get_whois_domain(&url).await;
+                trace!(url=?url, row_id=domain.row_id, "Whois search result: {:?}", res);
 
-            // If rdap (and its google tlds) won't have whois info
-            if res.is_err() {
-                if let Err(WhoIsError::NoWhois) = res {
-                    trace!(url=?url, row_id=domain.row_id, "Domain doesn't have whois info");
-                    // Get rdap info for domain
-                    let rdap = rdap_client
-                        .get_rdap_data(url.clone())
-                        .await
-                        .map_err(|e| (url.clone(), ConverterError::from(e)))?;
-                    trace!("RDAP Search Results: {:?}", rdap);
+                // If rdap (and its google tlds) won't have whois info
+                if res.is_err() {
+                    if let Err(WhoIsError::NoWhois) = res {
+                        trace!(url=?url, row_id=domain.row_id, "Domain doesn't have whois info");
+                        // Get rdap info for domain
+                        let rdap = rdap_client
+                            .get_rdap_data(url.clone())
+                            .await
+                            .map_err(|e| (url.clone(), ConverterError::from(e)))?;
+                        trace!("RDAP Search Results: {:?}", rdap);
 
-                    Ok(DomainWithId {
+                        Ok(DomainWithId {
+                            domain: Domain {
+                                url,
+                                whois_info: DomainInfo::RDAPInfo(rdap),
+                                collectors: vec![domain.domain.collector_info],
+                            },
+                            row_id: domain.row_id,
+                        })
+                    } else {
+                        Err((url.clone(), ConverterError::Whois(res.err().unwrap())))
+                    }
+                } else {
+                    // We already checked if it was an error
+                    let whois = res.unwrap();
+
+                    Ok::<DomainWithId, (Url, ConverterError)>(DomainWithId {
                         domain: Domain {
                             url,
-                            whois_info: DomainInfo::RDAPInfo(rdap),
+                            whois_info: DomainInfo::WhoisInfo(whois),
                             collectors: vec![domain.domain.collector_info],
                         },
                         row_id: domain.row_id,
                     })
+                }
+            }
+            .await;
+
+            if let Some(gsb_client) = gsb_client {
+                if let Ok(mut domain_with_id) = domain_res {
+                    let gsb_detection = gsb_client
+                        .get_url_batch_threat(domain_with_id.domain.url.to_string())
+                        .await
+                        .map_err(|e| {
+                            (domain_with_id.domain.url.clone(), ConverterError::from(e))
+                        })?;
+
+                    domain_with_id.domain.collectors.push(gsb_detection);
+
+                    Ok(domain_with_id)
                 } else {
-                    Err((url.clone(), ConverterError::Whois(res.err().unwrap())))
+                    domain_res
                 }
             } else {
-                // We already checked if it was an error
-                let whois = res.unwrap();
-
-                Ok::<DomainWithId, (Url, ConverterError)>(DomainWithId {
-                    domain: Domain {
-                        url,
-                        whois_info: DomainInfo::WhoisInfo(whois),
-                        collectors: vec![domain.domain.collector_info],
-                    },
-                    row_id: domain.row_id,
-                })
+                domain_res
             }
         })
         .buffer_unordered(10)
@@ -191,11 +219,12 @@ async fn add_domains_to_db(
 /// Processes a batch of domains into the database and returns the rowIds of the domains to delete.
 /// If adding a domain to the database fails for any reason, the rowId will not be returned.
 /// <u>**Only**</u> rowIds that are returned from this function should be removed from the database.
-#[instrument(skip(whois_client, rdap_client, domains), fields(domains_len=domains.len()))]
+#[instrument(skip(whois_client, rdap_client, gsb_client, domains), fields(domains_len=domains.len()))]
 pub async fn convert_domains(
     db_state: &DBState,
     whois_client: &WhoisClient,
     rdap_client: &RDAPClient,
+    gsb_client: &Option<SafebrowsingClient>,
     domains: Vec<DetectedDomainWithId>,
 ) -> Vec<i64> {
     let conn = db_state.get_connection();
@@ -213,7 +242,7 @@ pub async fn convert_domains(
     // Attempt to add new domains to the db
     let add_domain_results = add_domains_to_db(
         conn,
-        get_info_for_domains(add, whois_client, rdap_client).await,
+        get_info_for_domains(add, whois_client, rdap_client, gsb_client).await,
     )
     .await;
 

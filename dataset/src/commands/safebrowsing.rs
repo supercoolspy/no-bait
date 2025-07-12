@@ -13,11 +13,11 @@ pub(crate) async fn safebrowsing_command(
     command: SafebrowsingCommand,
 ) -> Result<(), SafebrowsingError> {
     let results = gsb
-        .get_url_batch_threat(vec![command.website])
+        .get_url_batch_threat(command.website)
         .instrument(info_span!("gsb_get"))
         .await?;
 
-    if results.is_empty() {
+    if !results.phishing {
         println!("URL is safe")
     } else {
         println!("URL is not safe")

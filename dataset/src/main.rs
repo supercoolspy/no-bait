@@ -6,7 +6,7 @@ mod processor;
 
 use crate::collectors::rdap::RDAPClient;
 use crate::collectors::whois::WhoisClient;
-use crate::database::init_db;
+use crate::database::{DBState, init_db};
 use crate::processor::create_processor;
 use clap::{Parser, Subcommand, arg};
 use collectors::safebrowsing::SafebrowsingClient;
@@ -59,10 +59,14 @@ enum Commands {
     PhishStorm(PhishStormCommand),
 }
 
-fn get_gsb_client(client: Arc<ClientWithMiddleware>) -> SafebrowsingClient {
+async fn get_gsb_client(
+    client: Arc<ClientWithMiddleware>,
+    memory: bool,
+    db_state: Arc<DBState>,
+) -> SafebrowsingClient {
     let gsb_api_key = std::env::var("GSB_API_KEY").expect("Should be able to get gsb api key");
 
-    let client = SafebrowsingClient::new(client, gsb_api_key);
+    let client = SafebrowsingClient::new(client, gsb_api_key, memory, db_state).await;
     debug!("Created GSB client");
 
     client
@@ -132,11 +136,19 @@ async fn main() {
 
     let rdap_client = Arc::new(RDAPClient::new(args.db_only, db_state.clone()).await);
 
+    let client = get_reqwest_middleware_client();
+
     create_processor(
         db_state.clone(),
         whois.clone(),
         rdap_client,
-        Arc::new(args.use_gsb),
+        if args.use_gsb {
+            Arc::new(Some(
+                get_gsb_client(client.clone(), args.db_only, db_state.clone()).await,
+            ))
+        } else {
+            Arc::new(None)
+        },
         receiver,
     );
     debug!("Created domain processor thread");
@@ -146,25 +158,22 @@ async fn main() {
             whois_command(&whois, command).await.unwrap();
         }
         Commands::GoogleSafeBrowsing(command) => {
-            safebrowsing_command(get_gsb_client(get_reqwest_middleware_client()), command)
-                .await
-                .unwrap();
+            safebrowsing_command(
+                get_gsb_client(client.clone(), args.db_only, db_state.clone()).await,
+                command,
+            )
+            .await
+            .unwrap();
         }
-        Commands::PhishTank(command) => phishtank_command(
-            &get_reqwest_middleware_client(),
-            &db_state,
-            command,
-            args.no_analysis,
-        )
-        .await
-        .unwrap(),
-        Commands::PhishStorm(command) => phishstorm_command(
-            &get_reqwest_middleware_client(),
-            &db_state,
-            command,
-            args.no_analysis,
-        )
-        .await
-        .unwrap(),
+        Commands::PhishTank(command) => {
+            phishtank_command(&client, &db_state, command, args.no_analysis)
+                .await
+                .unwrap()
+        }
+        Commands::PhishStorm(command) => {
+            phishstorm_command(&client, &db_state, command, args.no_analysis)
+                .await
+                .unwrap()
+        }
     }
 }
