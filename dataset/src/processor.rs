@@ -1,4 +1,5 @@
 use crate::collectors::rdap::RDAPClient;
+use crate::collectors::whois::WhoisClient;
 use crate::converter::convert_domains;
 use crate::database::{
     DBState, DatabaseError, get_amount_pending_db, get_pending_domains, remove_pending_domains,
@@ -12,7 +13,6 @@ use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
 use whois_rust::WhoIs;
-use crate::collectors::whois::WhoisClient;
 
 pub(crate) async fn wait_until_finished(db_state: &DBState) -> Result<(), DatabaseError> {
     let pending_memory = db_state.get_pending_count().await;

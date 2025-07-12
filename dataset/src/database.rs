@@ -1,16 +1,16 @@
 use crate::collectors::{DetectedDomain, DomainCollectorInfo};
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
+use icann_rdap_common::prelude::RdapResponse;
 use libsql::params::IntoValue;
 use libsql::{Builder, Connection, Row, params};
 use moka::future::Cache as MemoryCache;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Error};
 use std::mem::discriminant;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
-use icann_rdap_common::prelude::RdapResponse;
-use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -141,15 +141,61 @@ pub struct Cache<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static
 }
 
 impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
-    pub(crate) async fn new(memory: bool, db_state: Arc<DBState>, name: String) -> Result<Cache<T>, DatabaseError> {
-        db_state.get_connection().execute("CREATE TABLE IF NOT EXISTS ? (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL", &[format!("cache_{}", name)]).await?;
+    pub(crate) async fn new(
+        memory: bool,
+        db_state: Arc<DBState>,
+        name: String,
+    ) -> Result<Cache<T>, DatabaseError> {
+        db_state
+            .get_connection()
+            .execute(
+                "CREATE TABLE IF NOT EXISTS ? (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL",
+                &[format!("cache_{}", name)],
+            )
+            .await?;
 
         let instance = Self {
             memory_cache: if memory {
-                Some(MemoryCache::builder().build())
-            } else { None },
+                let db_state = db_state.clone();
+                let name: Arc<str> = Arc::from(name.clone());
+
+                Some(
+                    MemoryCache::builder()
+                        .async_eviction_listener(move |k: Arc<String>, v: T, cause| {
+                            let db_state = db_state.clone();
+                            let name = name.clone();
+
+                            async move {
+                                if !cause.was_evicted() {
+                                    // We don't want to do anything if the program explicitly removed an entry
+                                    return;
+                                }
+
+                                let res = Self::add_to_cache_db(
+                                    &db_state.get_connection(),
+                                    &name,
+                                    &k,
+                                    &v,
+                                )
+                                .await;
+
+                                if res.is_err() {
+                                    error!(
+                                        url = k.as_ref(),
+                                        "Failed to add evicted entry to database cache: {}",
+                                        res.expect_err("Checked if error")
+                                    );
+                                }
+                            }
+                            .boxed()
+                        })
+                        .build(),
+                )
+            } else {
+                None
+            },
             db_state,
-            name
+            name,
         };
 
         Ok(instance)
@@ -164,17 +210,23 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync> Cache<T> {
 
             cache.insert(key, value.clone()).await;
         } else {
-            self.db_state
-                .get_connection()
-                .execute(
-                    &format!(
-                        "REPLACE INTO cache_{} (key, value) VALUES (?, ?)",
-                        &self.name
-                    ),
-                    (key, serde_json::to_string(&value)?),
-                )
-                .await?;
+            Self::add_to_cache_db(&self.db_state.get_connection(), &self.name, &key, value).await?;
         }
+
+        Ok(())
+    }
+
+    async fn add_to_cache_db(
+        conn: &Connection,
+        name: &str,
+        key: &str,
+        value: &T,
+    ) -> Result<(), DatabaseError> {
+        conn.execute(
+            &format!("REPLACE INTO cache_{} (key, value) VALUES (?, ?)", name),
+            (key, serde_json::to_string(&value)?),
+        )
+        .await?;
 
         Ok(())
     }
@@ -210,9 +262,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync> Cache<T> {
 
         let row = row.unwrap();
 
-        Ok(Some(
-            serde_json::from_str(&row.get::<String>(0)?)?
-        ))
+        Ok(Some(serde_json::from_str(&row.get::<String>(0)?)?))
     }
 
     fn using_memory_cache(&self) -> bool {

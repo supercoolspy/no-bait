@@ -1,3 +1,4 @@
+use crate::database::{Cache, DBState, DatabaseError};
 use icann_rdap_client::http::{ClientConfig, create_client};
 use icann_rdap_client::iana::MemoryBootstrapStore;
 use icann_rdap_client::{
@@ -11,7 +12,6 @@ use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, instrument, trace};
 use url::Url;
-use crate::database::{Cache, DBState, DatabaseError};
 
 #[derive(Error, Debug)]
 pub enum RDAPError {
@@ -40,7 +40,7 @@ pub enum RDAPError {
 pub struct RDAPClient {
     rdap_client: icann_rdap_client::http::Client,
     store: MemoryBootstrapStore,
-    cache: Cache<RdapResponse>
+    cache: Cache<RdapResponse>,
 }
 
 impl RDAPClient {
@@ -54,7 +54,9 @@ impl RDAPClient {
         Self {
             rdap_client: client,
             store,
-            cache: Cache::new(memory, db_state, "rdap".to_string()).await.expect("Should be able to create cache")
+            cache: Cache::new(memory, db_state, "rdap".to_string())
+                .await
+                .expect("Should be able to create cache"),
         }
     }
 
@@ -68,7 +70,7 @@ impl RDAPClient {
 
         if cache_value.is_some() {
             trace!("RDAP Response in cache");
-            return Ok(cache_value.expect("Cache value should exist"))
+            return Ok(cache_value.expect("Cache value should exist"));
         }
         trace!("RDAP Response not in cache");
 

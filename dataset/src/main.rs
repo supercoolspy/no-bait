@@ -5,10 +5,11 @@ mod database;
 mod processor;
 
 use crate::collectors::rdap::RDAPClient;
+use crate::collectors::whois::WhoisClient;
 use crate::database::init_db;
 use crate::processor::create_processor;
 use clap::{Parser, Subcommand, arg};
-use collectors::{safebrowsing::SafebrowsingClient};
+use collectors::safebrowsing::SafebrowsingClient;
 use commands::{
     phishstorm::{PhishStormCommand, phishstorm_command},
     phishtank::{PhishTankCommand, phishtank_command},
@@ -27,7 +28,6 @@ use tracing::debug;
 use tracing::level_filters::LevelFilter;
 use tracing::log::Level;
 use whois_rust::WhoIs;
-use crate::collectors::whois::WhoisClient;
 
 const WHOIS_SERVERS: &str = include_str!("../assets/servers.json");
 

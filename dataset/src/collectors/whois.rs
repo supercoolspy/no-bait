@@ -1,10 +1,10 @@
+use crate::WHOIS_SERVERS;
+use crate::database::{Cache, DBState, DatabaseError};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, instrument, trace};
 use url::Url;
 use whois_rust::{WhoIs, WhoIsLookupOptions};
-use crate::database::{Cache, DBState, DatabaseError};
-use crate::WHOIS_SERVERS;
 
 #[derive(Error, Debug)]
 pub(crate) enum WhoIsError {
@@ -29,19 +29,19 @@ pub(crate) enum WhoIsError {
 
 pub struct WhoisClient {
     whois: WhoIs,
-    cache: Cache<String>
+    cache: Cache<String>,
 }
 
 impl WhoisClient {
-    pub async fn new(
-        memory: bool, db_state: Arc<DBState>
-    ) -> Self {
+    pub async fn new(memory: bool, db_state: Arc<DBState>) -> Self {
         let whois = WhoIs::from_string(WHOIS_SERVERS).expect("Should be able to load servers");
         debug!("Loaded Whois server data");
 
         Self {
             whois,
-            cache: Cache::new(memory, db_state, "whois".to_string()).await.expect("Should be able to create cache")
+            cache: Cache::new(memory, db_state, "whois".to_string())
+                .await
+                .expect("Should be able to create cache"),
         }
     }
 
@@ -56,7 +56,7 @@ impl WhoisClient {
 
         if cache_value.is_some() {
             trace!("Whois Response in cache");
-            return Ok(cache_value.expect("Cache value should exist"))
+            return Ok(cache_value.expect("Cache value should exist"));
         }
         trace!("Whois Response not in cache");
 
@@ -87,9 +87,10 @@ impl WhoisClient {
 
         let whois_data = whois_data_res?;
 
-        (&self.cache).add_to_cache(domain.to_string(), &whois_data).await?;
+        (&self.cache)
+            .add_to_cache(domain.to_string(), &whois_data)
+            .await?;
 
         Ok(whois_data)
     }
-
 }
