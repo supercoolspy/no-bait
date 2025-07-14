@@ -148,8 +148,8 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
         db_state
             .get_connection()
             .execute(
-                "CREATE TABLE IF NOT EXISTS ? (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL",
-                &[format!("cache_{}", name)],
+                &format!("CREATE TABLE IF NOT EXISTS cache_{} (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);", &name),
+                params!(),
             )
             .await?;
 
