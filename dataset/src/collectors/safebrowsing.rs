@@ -151,7 +151,7 @@ impl SafebrowsingClient {
                 collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
                     category: data.matches.first().map(|m| m.threat_type.clone()),
                 },
-                phishing: false,
+                phishing: true,
             })
         }
     }
