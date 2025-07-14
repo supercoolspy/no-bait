@@ -56,6 +56,7 @@ mod tests {
     use reqwest_middleware::ClientBuilder;
     use std::sync::{Arc, Once};
     use tokio::sync::OnceCell;
+    use tracing::level_filters::LevelFilter;
     use url::Url;
     use crate::database::{connect_to_db, DBState};
 
@@ -65,8 +66,15 @@ mod tests {
 
     pub async fn init() {
         INIT.call_once(|| {
-            env_logger::builder()
-                .is_test(true) // avoid coloring & timestamps
+            tracing_subscriber::fmt()
+                .with_line_number(true)
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy(),
+                )
+                .with_test_writer()
+                .with_thread_ids(true)
                 .init();
         });
 
