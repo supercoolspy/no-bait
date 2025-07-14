@@ -5,7 +5,7 @@ use crate::database::{Cache, DBState};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, instrument};
 
 pub(crate) struct SafebrowsingClient {
     api_key: String,

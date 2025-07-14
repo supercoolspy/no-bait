@@ -10,9 +10,8 @@ use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Cursor, Read};
-use std::time::Instant;
 use thiserror::Error;
-use tracing::{Instrument, Level, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace};
 use url::Url;
 use zip::ZipArchive;
 

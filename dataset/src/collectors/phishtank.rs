@@ -12,7 +12,7 @@ use std::io::Cursor;
 use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
-use tracing::{debug, error, info_span, instrument, trace, warn};
+use tracing::{debug, error, info_span, instrument, trace};
 use url::{ParseError, Url};
 
 pub type PhishTankDataset = Vec<PhishTankDatasetElement>;

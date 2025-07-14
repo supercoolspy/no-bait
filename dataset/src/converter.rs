@@ -1,4 +1,3 @@
-use crate::collectors::DomainCollectorInfo;
 use crate::collectors::rdap::{RDAPClient, RDAPError};
 use crate::collectors::safebrowsing::{SafebrowsingClient, SafebrowsingError};
 use crate::collectors::whois::{WhoIsError, WhoisClient};
@@ -8,14 +7,11 @@ use crate::database::{
 };
 use futures::StreamExt;
 use futures::stream::iter;
-use icann_rdap_client::iana::BootstrapStore;
-use icann_rdap_client::prelude::MemoryBootstrapStore;
 use libsql::Connection;
 use rayon::prelude::*;
 use thiserror::Error;
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
-use whois_rust::WhoIs;
 
 type ConvertErrorWithUrl = (Url, ConverterError);
 

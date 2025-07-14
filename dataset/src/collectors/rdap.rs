@@ -1,12 +1,8 @@
 use crate::database::{Cache, DBState, DatabaseError};
 use icann_rdap_client::http::{ClientConfig, create_client};
 use icann_rdap_client::iana::MemoryBootstrapStore;
-use icann_rdap_client::{
-    iana::BootstrapStore,
-    rdap::{QueryType, rdap_bootstrapped_request, rdap_url_request},
-};
+use icann_rdap_client::rdap::{QueryType, rdap_bootstrapped_request, rdap_url_request};
 use icann_rdap_common::prelude::{Link, ObjectCommonFields, RdapResponse};
-use libsql::AuthAction::Select;
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;

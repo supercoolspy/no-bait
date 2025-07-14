@@ -1,8 +1,6 @@
 use clap::Args;
 use tracing::instrument;
 use url::Url;
-use whois_rust::WhoIs;
-
 use crate::collectors::whois::WhoIsError;
 use crate::collectors::whois::WhoisClient;
 
