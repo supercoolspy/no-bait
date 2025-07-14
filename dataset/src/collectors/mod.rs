@@ -54,24 +54,32 @@ mod tests {
     use icann_rdap_common::prelude::RdapResponse;
     use reqwest::Client;
     use reqwest_middleware::ClientBuilder;
-    use std::sync::Once;
+    use std::sync::{Arc, Once};
+    use tokio::sync::OnceCell;
     use url::Url;
+    use crate::database::{connect_to_db, DBState};
 
     static INIT: Once = Once::new();
 
-    pub fn init_logger() {
+    static DB_STATE: OnceCell<Arc<DBState>> = const { OnceCell::const_new() };
+
+    pub async fn init() {
         INIT.call_once(|| {
             env_logger::builder()
                 .is_test(true) // avoid coloring & timestamps
                 .init();
         });
+
+        DB_STATE.get_or_init(|| async {
+            return Arc::new(connect_to_db(false, false).await.expect("Should be able to get db state").0)
+        }).await;
     }
 
     #[tokio::test]
     #[ignore]
     /// Currently broken since phishtank doesn't offer registration and doesn't work without an api key
     async fn get_phishtank_data() {
-        init_logger();
+        init().await;
 
         get_latest_data(
             &ClientBuilder::new(Client::new()).build(),
@@ -84,7 +92,7 @@ mod tests {
     #[tokio::test]
     /// Analyze the data locally, must be run after get_phishtank_data so that the file exists if in a purely test environment
     async fn analyze_phishtank_data() {
-        init_logger();
+        init().await;
 
         if !tokio::fs::try_exists("./phishtank.json.gz").await.unwrap() {
             return;
@@ -100,7 +108,7 @@ mod tests {
     #[tokio::test]
     /// Analyze the data locally, phishstorm.csv must be downloaded
     async fn analyze_phishstorm_data() {
-        init_logger();
+        init().await;
 
         if !tokio::fs::try_exists("./phishstorm.csv").await.unwrap() {
             return;
@@ -116,28 +124,24 @@ mod tests {
     #[tokio::test]
     /// Make sure GSB can detect the test urls
     async fn gsb_check() {
-        init_logger();
+        init().await;
 
-        let client = get_gsb_client(get_reqwest_middleware_client());
+        let client = get_gsb_client(get_reqwest_middleware_client(), true, DB_STATE.get().expect("DB State should be non-null").clone()).await;
 
         let res = client
-            .get_url_batch_threat(vec![
-                "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/".to_string(),
-                "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/SOCIAL_ENGINEERING/URL/"
-                    .to_string(),
-            ])
+            .get_url_batch_threat("http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/SOCIAL_ENGINEERING/URL/".to_string())
             .await
             .expect("Should be able to get url safety");
 
-        assert_eq!(res.len(), 2)
+        assert!(res.phishing)
     }
 
     #[tokio::test]
     /// Make sure RDAP client fails if the client cannot find a registrar to go to
     async fn rdap_related_fail() {
-        init_logger();
+        init().await;
 
-        let rdap_client = RDAPClient::new();
+        let rdap_client = RDAPClient::new(true, DB_STATE.get().expect("DB State should be non-null").clone()).await;
 
         let res = rdap_client
             .get_rdap_data(
@@ -156,9 +160,9 @@ mod tests {
     #[tokio::test]
     /// Check if RDAP can resolve a domain
     async fn rdap_get_domain() {
-        init_logger();
+        init().await;
 
-        let rdap_client = RDAPClient::new();
+        let rdap_client = RDAPClient::new(true, DB_STATE.get().expect("DB State should be non-null").clone()).await;
 
         // Common for hosting so we want to make sure it resolves
         let res = rdap_client
