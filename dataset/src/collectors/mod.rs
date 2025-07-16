@@ -59,35 +59,13 @@ mod tests {
     use tracing::level_filters::LevelFilter;
     use url::Url;
     use crate::database::{connect_to_db, DBState};
-
-    static INIT: Once = Once::new();
-
-    static DB_STATE: OnceCell<Arc<DBState>> = const { OnceCell::const_new() };
-
-    pub async fn init() {
-        INIT.call_once(|| {
-            tracing_subscriber::fmt()
-                .with_line_number(true)
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::builder()
-                        .with_default_directive(LevelFilter::INFO.into())
-                        .from_env_lossy(),
-                )
-                .with_test_writer()
-                .with_thread_ids(true)
-                .init();
-        });
-
-        DB_STATE.get_or_init(|| async {
-            return Arc::new(connect_to_db(false, false).await.expect("Should be able to get db state").0)
-        }).await;
-    }
+    use crate::tests::{init, DB_STATE};
 
     #[tokio::test]
     #[ignore]
     /// Currently broken since phishtank doesn't offer registration and doesn't work without an api key
     async fn get_phishtank_data() {
-        init().await;
+        init(false).await;
 
         get_latest_data(
             &ClientBuilder::new(Client::new()).build(),
@@ -100,7 +78,7 @@ mod tests {
     #[tokio::test]
     /// Analyze the data locally, must be run after get_phishtank_data so that the file exists if in a purely test environment
     async fn analyze_phishtank_data() {
-        init().await;
+        init(false).await;
 
         if !tokio::fs::try_exists("./phishtank.json.gz").await.unwrap() {
             return;
@@ -116,7 +94,7 @@ mod tests {
     #[tokio::test]
     /// Analyze the data locally, phishstorm.csv must be downloaded
     async fn analyze_phishstorm_data() {
-        init().await;
+        init(false).await;
 
         if !tokio::fs::try_exists("./phishstorm.csv").await.unwrap() {
             return;
@@ -132,7 +110,7 @@ mod tests {
     #[tokio::test]
     /// Make sure GSB can detect the test urls
     async fn gsb_check() {
-        init().await;
+        init(false).await;
 
         let client = get_gsb_client(get_reqwest_middleware_client(), true, DB_STATE.get().expect("DB State should be non-null").clone()).await;
 
@@ -147,7 +125,7 @@ mod tests {
     #[tokio::test]
     /// Make sure RDAP client fails if the client cannot find a registrar to go to
     async fn rdap_related_fail() {
-        init().await;
+        init(false).await;
 
         let rdap_client = RDAPClient::new(true, DB_STATE.get().expect("DB State should be non-null").clone()).await;
 
@@ -168,7 +146,7 @@ mod tests {
     #[tokio::test]
     /// Check if RDAP can resolve a domain
     async fn rdap_get_domain() {
-        init().await;
+        init(false).await;
 
         let rdap_client = RDAPClient::new(true, DB_STATE.get().expect("DB State should be non-null").clone()).await;
 
