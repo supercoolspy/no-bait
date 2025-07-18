@@ -50,6 +50,8 @@ mod tests {
     use crate::collectors::phishtank::get_latest_data;
     use crate::collectors::rdap::{RDAPClient, RDAPError};
     use crate::collectors::{ToDetectedDomain, phishstorm, phishtank};
+    use crate::database::{DBState, connect_to_db};
+    use crate::tests::{DB_STATE, init};
     use crate::{get_gsb_client, get_reqwest_middleware_client};
     use icann_rdap_common::prelude::RdapResponse;
     use reqwest::Client;
@@ -58,8 +60,6 @@ mod tests {
     use tokio::sync::OnceCell;
     use tracing::level_filters::LevelFilter;
     use url::Url;
-    use crate::database::{connect_to_db, DBState};
-    use crate::tests::{init, DB_STATE};
 
     #[tokio::test]
     #[ignore]
@@ -112,10 +112,23 @@ mod tests {
     async fn gsb_check() {
         init(false).await;
 
-        let client = get_gsb_client(get_reqwest_middleware_client(), true, DB_STATE.get().expect("DB State should be non-null").clone()).await;
+        let client = get_gsb_client(
+            get_reqwest_middleware_client(),
+            true,
+            DB_STATE
+                .get()
+                .expect("DB State should be non-null")
+                .lock()
+                .await
+                .clone(),
+        )
+        .await;
 
         let res = client
-            .get_url_batch_threat("http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/SOCIAL_ENGINEERING/URL/".to_string())
+            .get_url_batch_threat(
+                "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/SOCIAL_ENGINEERING/URL/"
+                    .to_string(),
+            )
             .await
             .expect("Should be able to get url safety");
 
@@ -127,7 +140,16 @@ mod tests {
     async fn rdap_related_fail() {
         init(false).await;
 
-        let rdap_client = RDAPClient::new(true, DB_STATE.get().expect("DB State should be non-null").clone()).await;
+        let rdap_client = RDAPClient::new(
+            true,
+            DB_STATE
+                .get()
+                .expect("DB State should be non-null")
+                .lock()
+                .await
+                .clone(),
+        )
+        .await;
 
         let res = rdap_client
             .get_rdap_data(
@@ -148,7 +170,16 @@ mod tests {
     async fn rdap_get_domain() {
         init(false).await;
 
-        let rdap_client = RDAPClient::new(true, DB_STATE.get().expect("DB State should be non-null").clone()).await;
+        let rdap_client = RDAPClient::new(
+            true,
+            DB_STATE
+                .get()
+                .expect("DB State should be non-null")
+                .lock()
+                .await
+                .clone(),
+        )
+        .await;
 
         // Common for hosting so we want to make sure it resolves
         let res = rdap_client

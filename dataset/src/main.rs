@@ -177,15 +177,14 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
+    use crate::database::{DBState, connect_to_db};
     use std::sync::{Arc, Once};
-    use tokio::sync::OnceCell;
-    use crate::database::{connect_to_db, DBState};
+    use tokio::sync::{Mutex, OnceCell};
     use tracing::level_filters::LevelFilter;
-
 
     static INIT: Once = Once::new();
 
-    pub(crate) static DB_STATE: OnceCell<Arc<DBState>> = const { OnceCell::const_new() };
+    pub(crate) static DB_STATE: OnceCell<Mutex<Arc<DBState>>> = const { OnceCell::const_new() };
 
     pub async fn init(db_only: bool) {
         INIT.call_once(|| {
@@ -201,8 +200,15 @@ mod tests {
                 .init();
         });
 
-        DB_STATE.get_or_init(|| async {
-            return Arc::new(connect_to_db(false, db_only).await.expect("Should be able to get db state").0)
-        }).await;
+        DB_STATE
+            .get_or_init(|| async {
+                return Mutex::new(Arc::new(
+                    connect_to_db(false, db_only)
+                        .await
+                        .expect("Should be able to get db state")
+                        .0,
+                ));
+            })
+            .await;
     }
 }

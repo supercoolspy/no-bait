@@ -3,7 +3,7 @@ use crate::collectors::safebrowsing::SafebrowsingClient;
 use crate::collectors::whois::WhoisClient;
 use crate::converter::convert_domains;
 use crate::database::{
-    get_amount_pending_db, get_pending_domains, remove_pending_domains, DBState, DatabaseError,
+    DBState, DatabaseError, get_amount_pending_db, get_pending_domains, remove_pending_domains,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -99,46 +99,124 @@ async fn process_domains(
 
 #[cfg(test)]
 mod tests {
-    use url::Url;
     use crate::collectors::rdap::RDAPClient;
     use crate::collectors::whois::WhoisClient;
-    use crate::collectors::{CollectorSpecificInfo, DetectedDomain, DomainCollectorInfo};
+    use crate::collectors::{
+        CollectorSpecificInfo, DetectedDomain, DomainCollectorInfo, ToDetectedDomain, phishstorm,
+        phishtank,
+    };
     use crate::converter::convert_domains;
     use crate::database::DetectedDomainWithId;
-    use crate::tests::{init, DB_STATE};
+    use crate::tests::{DB_STATE, init};
+    use rand::prelude::{IndexedRandom, IteratorRandom};
+    use url::Url;
 
-    async fn process_single(domain: &'static str) {
+    async fn process_single_named(domain: &str) {
+        let url: Url = domain.parse().expect("Should be able to parse domain");
+
+        let test_domain = DetectedDomain {
+            url: url.clone(),
+            collector_info: DomainCollectorInfo {
+                collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
+                    category: None,
+                },
+                phishing: false,
+            },
+        };
+
+        process_domains(vec![test_domain]).await;
+    }
+
+    async fn process_domains(domains: Vec<DetectedDomain>) {
         init(false).await;
 
-        let db_state = DB_STATE.get().expect("DB State should be non-null");
+        let db_state = DB_STATE
+            .get()
+            .expect("DB State should be non-null")
+            .lock()
+            .await;
 
         let rdap_client = RDAPClient::new(true, db_state.clone()).await;
         let whois_client = WhoisClient::new(true, db_state.clone()).await;
 
-        let url: Url = domain.parse().expect("Should be able to parse domain");
+        for domain in &domains {
+            let url = domain.url.as_str();
 
-        let test_domain = DetectedDomainWithId {
-            domain: DetectedDomain {
-                url: url.clone(),
-                collector_info: DomainCollectorInfo { collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing { category: None }, phishing: false },
-            },
-            row_id: 0,
-        };
+            db_state
+                .get_connection()
+                .execute("DELETE FROM domains WHERE url=?", [url])
+                .await
+                .expect("Should be able to remove domain");
+        }
 
-        db_state.get_connection().execute("DELETE FROM domains WHERE url=?", [url.as_str()]).await.expect("Should be able to remove domain");
+        let test_domains: Vec<DetectedDomainWithId> = domains
+            .into_iter()
+            .map(|d| DetectedDomainWithId {
+                domain: d,
+                row_id: 0,
+            })
+            .collect();
 
-        let row_result = convert_domains(db_state, &whois_client, &rdap_client, &None, vec![test_domain]).await;
+        let amount = test_domains.len();
 
-        assert_eq!(row_result.len(), 1)
+        let row_result =
+            convert_domains(&db_state, &whois_client, &rdap_client, &None, test_domains).await;
+
+        assert_eq!(row_result.len(), amount)
     }
 
     #[tokio::test]
     async fn process_single_whois() {
-        process_single("https://google.com").await
+        process_single_named("https://google.com").await
     }
 
     #[tokio::test]
     async fn process_single_rdap() {
-        process_single("https://google.dev").await
+        process_single_named("https://google.dev").await
+    }
+
+    #[tokio::test]
+    /// Analyze the data locally, then choose 5 random domains to process
+    async fn process_phishstorm_random() {
+        init(false).await;
+
+        if !tokio::fs::try_exists("./phishstorm.csv").await.unwrap() {
+            return;
+        }
+
+        let data = phishstorm::get_data_local()
+            .await
+            .expect("Should be able to get phishstorm data")
+            .to_detected_domains()
+            .expect("Should be able to convert to detected domains");
+
+        let mut rng = rand::rng();
+
+        let random_domain = data.into_iter().choose_multiple(&mut rng, 5);
+
+        process_domains(random_domain).await
+    }
+
+    #[tokio::test]
+    /// Analyze the data locally, must be run after get_phishtank_data so that the file exists if in a purely test environment.
+    /// Then choose 5 random domains to process.
+    async fn process_phishtank_random() {
+        init(false).await;
+
+        if !tokio::fs::try_exists("./phishtank.json.gz").await.unwrap() {
+            return;
+        }
+
+        let data = phishtank::get_data_local()
+            .await
+            .expect("Should be able to get phishtank data")
+            .to_detected_domains()
+            .expect("Should be able to convert to detected domains");
+
+        let mut rng = rand::rng();
+
+        let random_domain = data.into_iter().choose_multiple(&mut rng, 5);
+
+        process_domains(random_domain).await
     }
 }

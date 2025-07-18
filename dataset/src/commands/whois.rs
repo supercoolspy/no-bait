@@ -1,8 +1,8 @@
+use crate::collectors::whois::WhoIsError;
+use crate::collectors::whois::WhoisClient;
 use clap::Args;
 use tracing::instrument;
 use url::Url;
-use crate::collectors::whois::WhoIsError;
-use crate::collectors::whois::WhoisClient;
 
 #[derive(Args, Debug)]
 pub(crate) struct WhoIsCommand {
