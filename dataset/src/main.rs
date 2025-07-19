@@ -23,6 +23,7 @@ use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use std::sync::Arc;
+use tldextract::TldOption;
 use tracing::debug;
 use tracing::level_filters::LevelFilter;
 
@@ -129,9 +130,12 @@ async fn main() {
 
     let db_state = Arc::new(db_state);
 
-    let whois = Arc::new(WhoisClient::new(args.db_only, db_state.clone()).await);
+    let tld_extractor = Arc::new(TldOption::default().build());
 
-    let rdap_client = Arc::new(RDAPClient::new(args.db_only, db_state.clone()).await);
+    let whois = Arc::new(WhoisClient::new(args.db_only, db_state.clone(), tld_extractor.clone()).await);
+
+    let rdap_client =
+        Arc::new(RDAPClient::new(args.db_only, db_state.clone(), tld_extractor).await);
 
     let client = get_reqwest_middleware_client();
 
@@ -178,13 +182,16 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use crate::database::{DBState, connect_to_db};
-    use std::sync::{Arc, Once};
+    use std::sync::{Arc, LazyLock, Once};
+    use tldextract::{TldExtractor, TldOption};
     use tokio::sync::{Mutex, OnceCell};
     use tracing::level_filters::LevelFilter;
 
     static INIT: Once = Once::new();
 
     pub(crate) static DB_STATE: OnceCell<Mutex<Arc<DBState>>> = const { OnceCell::const_new() };
+    pub(crate) static TLD_EXTRACTOR: LazyLock<Arc<TldExtractor>> =
+        LazyLock::new(|| Arc::new(TldOption::default().build()));
 
     pub async fn init(db_only: bool) {
         INIT.call_once(|| {

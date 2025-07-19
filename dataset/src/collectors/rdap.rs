@@ -6,6 +6,7 @@ use icann_rdap_common::prelude::{Link, ObjectCommonFields, RdapResponse};
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
+use tldextract::TldExtractor;
 use tracing::{debug, instrument, trace};
 use url::Url;
 
@@ -23,8 +24,17 @@ pub enum RDAPError {
     #[error("Database (Cache) Error: {0}")]
     DatabaseError(#[from] DatabaseError),
 
+    #[error("TLD Extract error: {0}")]
+    TLDExtract(#[from] tldextract::TldExtractError),
+
+    #[error("No Domain Parsable {0}")]
+    NoDomain(Url),
+
     #[error("No Root Domain Parsable {0}")]
     NoRoot(Url),
+
+    #[error("No Suffix Parsable {0}")]
+    NoSuffix(Url),
 
     #[error("No related link")]
     NoRelated,
@@ -37,10 +47,15 @@ pub struct RDAPClient {
     rdap_client: icann_rdap_client::http::Client,
     store: MemoryBootstrapStore,
     cache: Cache<RdapResponse>,
+    tld_extractor: Arc<TldExtractor>,
 }
 
 impl RDAPClient {
-    pub async fn new(memory: bool, db_state: Arc<DBState>) -> Self {
+    pub async fn new(
+        memory: bool,
+        db_state: Arc<DBState>,
+        tld_extractor: Arc<TldExtractor>,
+    ) -> Self {
         let config = ClientConfig::default();
 
         let client = create_client(&config).expect("Should be able to create client");
@@ -53,13 +68,27 @@ impl RDAPClient {
             cache: Cache::new(memory, db_state, "rdap".to_string())
                 .await
                 .expect("Should be able to create cache"),
+            tld_extractor,
         }
     }
 
     /// Per most registry's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
     #[instrument(skip(self), err)]
     pub(crate) async fn get_rdap_data(&self, url: Url) -> Result<RdapResponse, RDAPError> {
-        let query = QueryType::from_str(url.domain().ok_or(RDAPError::NoRoot(url.clone()))?)?;
+        let domain = url.host_str().ok_or(RDAPError::NoDomain(url.clone()))?;
+
+        let extractor_info = self.tld_extractor.extract(domain)?;
+        let root = &format!(
+            "{}.{}",
+            extractor_info
+                .domain
+                .ok_or(RDAPError::NoRoot(url.clone()))?,
+            extractor_info
+                .suffix
+                .ok_or(RDAPError::NoSuffix(url.clone()))?
+        );
+
+        let query = QueryType::from_str(root)?;
 
         trace!("Checking if response in cache");
         let cache_value = (&self.cache).get_from_cache(url.to_string()).await?;
@@ -101,7 +130,7 @@ impl RDAPClient {
 
             Ok(data)
         } else {
-            Err(RDAPError::NoRoot(url))
+            Err(RDAPError::NoDomain(url))
         }
     }
 }

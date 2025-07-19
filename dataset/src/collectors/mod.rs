@@ -51,7 +51,7 @@ mod tests {
     use crate::collectors::rdap::{RDAPClient, RDAPError};
     use crate::collectors::{ToDetectedDomain, phishstorm, phishtank};
     use crate::database::{DBState, connect_to_db};
-    use crate::tests::{DB_STATE, init};
+    use crate::tests::{DB_STATE, TLD_EXTRACTOR, init};
     use crate::{get_gsb_client, get_reqwest_middleware_client};
     use icann_rdap_common::prelude::RdapResponse;
     use reqwest::Client;
@@ -148,6 +148,7 @@ mod tests {
                 .lock()
                 .await
                 .clone(),
+            TLD_EXTRACTOR.clone(),
         )
         .await;
 
@@ -178,6 +179,7 @@ mod tests {
                 .lock()
                 .await
                 .clone(),
+            TLD_EXTRACTOR.clone(),
         )
         .await;
 

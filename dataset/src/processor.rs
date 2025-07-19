@@ -107,7 +107,7 @@ mod tests {
     };
     use crate::converter::convert_domains;
     use crate::database::DetectedDomainWithId;
-    use crate::tests::{DB_STATE, init};
+    use crate::tests::{DB_STATE, TLD_EXTRACTOR, init};
     use rand::prelude::{IndexedRandom, IteratorRandom};
     use url::Url;
 
@@ -136,8 +136,8 @@ mod tests {
             .lock()
             .await;
 
-        let rdap_client = RDAPClient::new(true, db_state.clone()).await;
-        let whois_client = WhoisClient::new(true, db_state.clone()).await;
+        let rdap_client = RDAPClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;
+        let whois_client = WhoisClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;
 
         for domain in &domains {
             let url = domain.url.as_str();
