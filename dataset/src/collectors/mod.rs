@@ -136,37 +136,6 @@ mod tests {
     }
 
     #[tokio::test]
-    /// Make sure RDAP client fails if the client cannot find a registrar to go to
-    async fn rdap_related_fail() {
-        init(false).await;
-
-        let rdap_client = RDAPClient::new(
-            true,
-            DB_STATE
-                .get()
-                .expect("DB State should be non-null")
-                .lock()
-                .await
-                .clone(),
-            TLD_EXTRACTOR.clone(),
-        )
-        .await;
-
-        let res = rdap_client
-            .get_rdap_data(
-                Url::parse("https://example.com").expect("Should be able to parse example url"),
-            )
-            .await;
-
-        assert!(res.is_err());
-
-        assert!(
-            matches!(res.err(), Some(RDAPError::NoRelated)),
-            "Error was not No Related field"
-        );
-    }
-
-    #[tokio::test]
     /// Check if RDAP can resolve a domain
     async fn rdap_get_domain() {
         init(false).await;

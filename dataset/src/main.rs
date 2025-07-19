@@ -132,7 +132,8 @@ async fn main() {
 
     let tld_extractor = Arc::new(TldOption::default().build());
 
-    let whois = Arc::new(WhoisClient::new(args.db_only, db_state.clone(), tld_extractor.clone()).await);
+    let whois =
+        Arc::new(WhoisClient::new(args.db_only, db_state.clone(), tld_extractor.clone()).await);
 
     let rdap_client =
         Arc::new(RDAPClient::new(args.db_only, db_state.clone(), tld_extractor).await);

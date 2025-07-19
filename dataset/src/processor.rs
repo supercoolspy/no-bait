@@ -99,6 +99,7 @@ async fn process_domains(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use crate::collectors::rdap::RDAPClient;
     use crate::collectors::whois::WhoisClient;
     use crate::collectors::{
@@ -106,10 +107,11 @@ mod tests {
         phishtank,
     };
     use crate::converter::convert_domains;
-    use crate::database::DetectedDomainWithId;
+    use crate::database::{DBState, DetectedDomainWithId, DomainInfo, DomainWithId};
     use crate::tests::{DB_STATE, TLD_EXTRACTOR, init};
     use rand::prelude::{IndexedRandom, IteratorRandom};
     use url::Url;
+    use crate::converter;
 
     async fn process_single_named(domain: &str) {
         let url: Url = domain.parse().expect("Should be able to parse domain");
@@ -124,10 +126,22 @@ mod tests {
             },
         };
 
-        process_domains(vec![test_domain]).await;
+        process_domains(vec![test_domain],  |db_state, whois_client, rdap_client, domains| async move {
+            convert_domains(&db_state, &whois_client, &rdap_client, &None, domains).await
+        }).await;
     }
 
-    async fn process_domains(domains: Vec<DetectedDomain>) {
+    async fn process_domains_simple(domains: Vec<DetectedDomain>) {
+        process_domains(domains,  |db_state, whois_client, rdap_client, domains| async move {
+            convert_domains(&db_state, &whois_client, &rdap_client, &None, domains).await
+        }).await;
+    }
+
+    async fn process_domains<F, FnOutput, T>(domains: Vec<DetectedDomain>, function: F) -> Vec<T>
+    where
+        F: Fn(Arc<DBState>, WhoisClient, RDAPClient, Vec<DetectedDomainWithId>) -> FnOutput,
+        FnOutput: Future<Output = Vec<T>>
+     {
         init(false).await;
 
         let db_state = DB_STATE
@@ -160,9 +174,11 @@ mod tests {
         let amount = test_domains.len();
 
         let row_result =
-            convert_domains(&db_state, &whois_client, &rdap_client, &None, test_domains).await;
+            function(db_state.clone(), whois_client, rdap_client, test_domains).await;
 
-        assert_eq!(row_result.len(), amount)
+        assert_eq!(row_result.len(), amount);
+
+         row_result
     }
 
     #[tokio::test]
@@ -173,6 +189,26 @@ mod tests {
     #[tokio::test]
     async fn process_single_rdap() {
         process_single_named("https://google.dev").await
+    }
+
+    #[tokio::test]
+    async fn process_single_none() {
+        let url: Url = "https://nic.co.nr".parse().expect("Should be able to parse domain");
+
+        let test_domain = DetectedDomain {
+            url: url.clone(),
+            collector_info: DomainCollectorInfo {
+                collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
+                    category: None,
+                },
+                phishing: false,
+            },
+        };
+
+        let domains: Vec<DomainWithId> = process_domains(vec![test_domain],  |db_state, whois_client, rdap_client, domains| async move {
+            converter::test_support::get_info_for_domains(domains, &whois_client, &rdap_client, &None).await.collect()
+        }).await;
+        assert!(matches!(domains.first().expect("Should be able to get first domain").domain.whois_info, DomainInfo::None));
     }
 
     #[tokio::test]
@@ -194,7 +230,7 @@ mod tests {
 
         let random_domain = data.into_iter().choose_multiple(&mut rng, 5);
 
-        process_domains(random_domain).await
+        process_domains_simple(random_domain).await
     }
 
     #[tokio::test]
@@ -217,6 +253,6 @@ mod tests {
 
         let random_domain = data.into_iter().choose_multiple(&mut rng, 5);
 
-        process_domains(random_domain).await
+        process_domains_simple(random_domain).await
     }
 }

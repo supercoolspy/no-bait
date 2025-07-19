@@ -116,16 +116,16 @@ impl RDAPClient {
                 .cloned();
             trace!("Related link: {:?}", link_op);
 
-           let data = if let Some(link) = link_op {
-               trace!("Related domain found");
-               let location = link.href.ok_or(RDAPError::NoHREF)?;
+            let data = if let Some(link) = link_op {
+                trace!("Related domain found");
+                let location = link.href.ok_or(RDAPError::NoHREF)?;
 
-               let res = rdap_url_request(&location, &self.rdap_client).await?;
-               res.rdap
-           } else {
-               trace!("Related domain not found, assuming special domain");
-               RdapResponse::Domain(domain)
-           };
+                let res = rdap_url_request(&location, &self.rdap_client).await?;
+                res.rdap
+            } else {
+                trace!("Related domain not found, assuming special domain");
+                RdapResponse::Domain(domain)
+            };
 
             (&self.cache).add_to_cache(url.to_string(), &data).await?;
 

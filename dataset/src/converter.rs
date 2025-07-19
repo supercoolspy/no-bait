@@ -7,6 +7,7 @@ use crate::database::{
 };
 use futures::StreamExt;
 use futures::stream::iter;
+use icann_rdap_client::RdapClientError;
 use libsql::Connection;
 use rayon::prelude::*;
 use thiserror::Error;
@@ -98,20 +99,39 @@ async fn get_info_for_domains(
                     if let Err(WhoIsError::NoWhois) = res {
                         trace!(url=?url, row_id=domain.row_id, "Domain doesn't have whois info");
                         // Get rdap info for domain
-                        let rdap = rdap_client
+                        let rdap_res = rdap_client
                             .get_rdap_data(url.clone())
-                            .await
-                            .map_err(|e| (url.clone(), ConverterError::from(e)))?;
-                        trace!("RDAP Search Results: {:?}", rdap);
+                            .await;
+                        trace!("RDAP Search Results: {:?}", rdap_res);
 
-                        Ok(DomainWithId {
-                            domain: Domain {
-                                url,
-                                whois_info: DomainInfo::RDAPInfo(rdap),
-                                collectors: vec![domain.domain.collector_info],
-                            },
-                            row_id: domain.row_id,
-                        })
+                        if let Ok(rdap) = rdap_res {
+                            Ok(DomainWithId {
+                                domain: Domain {
+                                    url,
+                                    whois_info: DomainInfo::RDAPInfo(rdap),
+                                    collectors: vec![domain.domain.collector_info],
+                                },
+                                row_id: domain.row_id,
+                            })
+                        } else {
+                            let rdap_err = rdap_res.expect_err("Already checked if error");
+
+                            if let RDAPError::RDAPClient(err) = &rdap_err {
+                                if matches!(err, &RdapClientError::BootstrapError(_)) {
+                                    debug!("RDAP Client Bootstrap error, assuming impossible lookup");
+                                    return Ok(DomainWithId {
+                                        domain: Domain {
+                                            url,
+                                            whois_info: DomainInfo::None,
+                                            collectors: vec![domain.domain.collector_info],
+                                        },
+                                        row_id: domain.row_id,
+                                    })
+                                }
+                            }
+
+                            return Err((url.clone(), ConverterError::from(rdap_err)))
+                        }
                     } else {
                         Err((url.clone(), ConverterError::Whois(res.err().unwrap())))
                     }
@@ -286,4 +306,21 @@ pub async fn convert_domains(
     debug!("{} Rows to delete", rows_to_delete.len());
 
     rows_to_delete
+}
+
+#[cfg(test)]
+pub mod test_support {
+    use crate::collectors::rdap::RDAPClient;
+    use crate::collectors::safebrowsing::SafebrowsingClient;
+    use crate::collectors::whois::WhoisClient;
+    use crate::database::{DetectedDomainWithId, DomainWithId};
+
+    pub(crate) async fn get_info_for_domains(
+        domains: Vec<DetectedDomainWithId>,
+        whois_client: &WhoisClient,
+        rdap_client: &RDAPClient,
+        gsb_client: &Option<SafebrowsingClient>,
+    ) -> impl Iterator<Item = DomainWithId> {
+        super::get_info_for_domains(domains, whois_client, rdap_client, gsb_client).await
+    }
 }

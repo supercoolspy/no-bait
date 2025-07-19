@@ -108,6 +108,7 @@ impl DBState {
 pub enum DomainInfo {
     WhoisInfo(String),
     RDAPInfo(RdapResponse),
+    None
 }
 
 /// A processed domain that can be added to the training set
