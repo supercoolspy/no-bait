@@ -1,7 +1,7 @@
 use std::sync::{Arc, LazyLock};
 
 use crate::collectors::{CollectorSpecificInfo, DomainCollectorInfo};
-use crate::database::{Cache, DBState};
+use crate::database::{Cache, DBState, DatabaseError};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -10,7 +10,7 @@ use tracing::{debug, instrument};
 pub(crate) struct SafebrowsingClient {
     api_key: String,
     client: Arc<ClientWithMiddleware>,
-    cache: Cache<Option<CollectorSpecificInfo>>,
+    cache: Cache<DomainCollectorInfo>,
 }
 
 #[derive(Error, Debug)]
@@ -20,6 +20,9 @@ pub enum SafebrowsingError {
 
     #[error("Reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
+
+    #[error("Database (Cache) Error: {0}")]
+    DatabaseError(#[from] DatabaseError),
 
     #[error("No Threat Type even though Array has values")]
     NoThreatType,
@@ -108,6 +111,12 @@ impl SafebrowsingClient {
         &self,
         url: String,
     ) -> Result<DomainCollectorInfo, SafebrowsingError> {
+        let cache_value = self.cache.get_from_cache(url.clone()).await.unwrap_or_default();
+
+        if let Some(value) = cache_value {
+            return Ok(value)
+        }
+
         let mut req_data = REQUEST.clone();
         req_data.threat_info.threat_entries = vec![ThreatEntry {
             url: url.to_string(),
@@ -139,20 +148,24 @@ impl SafebrowsingClient {
         let data = data_res?;
         debug!("Able to get GSB response as json");
 
-        if data.matches.is_empty() {
-            Ok(DomainCollectorInfo {
+        let info = if data.matches.is_empty() {
+            DomainCollectorInfo {
                 collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
                     category: None,
                 },
                 phishing: false,
-            })
+            }
         } else {
-            Ok(DomainCollectorInfo {
+            DomainCollectorInfo {
                 collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
                     category: data.matches.first().map(|m| m.threat_type.clone()),
                 },
                 phishing: true,
-            })
-        }
+            }
+        };
+
+        self.cache.add_to_cache(url.clone(), &info).await?;
+
+        Ok(info)
     }
 }
