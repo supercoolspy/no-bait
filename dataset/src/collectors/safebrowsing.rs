@@ -111,10 +111,14 @@ impl SafebrowsingClient {
         &self,
         url: String,
     ) -> Result<DomainCollectorInfo, SafebrowsingError> {
-        let cache_value = self.cache.get_from_cache(url.clone()).await.unwrap_or_default();
+        let cache_value = self
+            .cache
+            .get_from_cache(url.clone())
+            .await
+            .unwrap_or_default();
 
         if let Some(value) = cache_value {
-            return Ok(value)
+            return Ok(value);
         }
 
         let mut req_data = REQUEST.clone();

@@ -1,5 +1,6 @@
 use crate::collectors::rdap::{RDAPClient, RDAPError};
 use crate::collectors::safebrowsing::{SafebrowsingClient, SafebrowsingError};
+use crate::collectors::sslmate::{SslMateClient, SslMateError};
 use crate::collectors::whois::{WhoIsError, WhoisClient};
 use crate::database::{
     DBState, DatabaseError, DetectedDomainWithId, Domain, DomainInfo, DomainWithId, add_domain,
@@ -10,6 +11,7 @@ use futures::stream::iter;
 use icann_rdap_client::RdapClientError;
 use libsql::Connection;
 use rayon::prelude::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
@@ -99,9 +101,7 @@ async fn get_info_for_domains(
                     if let Err(WhoIsError::NoWhois) = res {
                         trace!(url=?url, row_id=domain.row_id, "Domain doesn't have whois info");
                         // Get rdap info for domain
-                        let rdap_res = rdap_client
-                            .get_rdap_data(url.clone())
-                            .await;
+                        let rdap_res = rdap_client.get_rdap_data(url.clone()).await;
                         trace!("RDAP Search Results: {:?}", rdap_res);
 
                         if let Ok(rdap) = rdap_res {
@@ -109,6 +109,7 @@ async fn get_info_for_domains(
                                 domain: Domain {
                                     url,
                                     whois_info: DomainInfo::RDAPInfo(rdap),
+                                    cert_info: None,
                                     collectors: vec![domain.domain.collector_info],
                                 },
                                 row_id: domain.row_id,
@@ -118,19 +119,22 @@ async fn get_info_for_domains(
 
                             if let RDAPError::RDAPClient(err) = &rdap_err {
                                 if matches!(err, &RdapClientError::BootstrapError(_)) {
-                                    debug!("RDAP Client Bootstrap error, assuming impossible lookup");
+                                    debug!(
+                                        "RDAP Client Bootstrap error, assuming impossible lookup"
+                                    );
                                     return Ok(DomainWithId {
                                         domain: Domain {
                                             url,
                                             whois_info: DomainInfo::None,
+                                            cert_info: None,
                                             collectors: vec![domain.domain.collector_info],
                                         },
                                         row_id: domain.row_id,
-                                    })
+                                    });
                                 }
                             }
 
-                            return Err((url.clone(), ConverterError::from(rdap_err)))
+                            return Err((url.clone(), ConverterError::from(rdap_err)));
                         }
                     } else {
                         Err((url.clone(), ConverterError::Whois(res.err().unwrap())))
@@ -143,6 +147,7 @@ async fn get_info_for_domains(
                         domain: Domain {
                             url,
                             whois_info: DomainInfo::WhoisInfo(whois),
+                            cert_info: None,
                             collectors: vec![domain.domain.collector_info],
                         },
                         row_id: domain.row_id,
@@ -232,14 +237,55 @@ async fn add_domains_to_db(
         .await
 }
 
+#[instrument(skip_all)]
+pub async fn add_certs(
+    ssl_mate_client: &SslMateClient,
+    domains: impl Iterator<Item = DomainWithId>,
+) -> impl Iterator<Item = DomainWithId> {
+    let rate_limited = &AtomicBool::new(false);
+
+    iter(domains)
+        .map(|mut domain_with_id| async move {
+            if domain_with_id.domain.cert_info.is_some() || rate_limited.load(Ordering::Relaxed) {
+                return domain_with_id
+            }
+
+            if let Some(domain) = domain_with_id.domain.url.domain() {
+                let res = ssl_mate_client.get_certs(domain).await;
+
+                if let Ok(response) = res {
+                    domain_with_id.domain.cert_info = Some(response)
+                } else {
+                    let err = res.expect_err("Checked if error");
+
+                    if matches!(err, SslMateError::RateLimited) {
+                        // Stop requesting certs if we get ratelimited
+                        rate_limited.store(true, Ordering::Relaxed)
+                    } else {
+                        error!(url=?domain_with_id.domain.url, "Failed to get domain info for domain: {}", err);
+                    }
+                }
+
+
+            }
+
+            domain_with_id
+        })
+        .buffer_unordered(10)
+        .collect::<Vec<DomainWithId>>()
+        .await
+        .into_iter()
+}
+
 /// Processes a batch of domains into the database and returns the rowIds of the domains to delete.
 /// If adding a domain to the database fails for any reason, the rowId will not be returned.
 /// <u>**Only**</u> rowIds that are returned from this function should be removed from the database.
-#[instrument(skip(whois_client, rdap_client, gsb_client, domains), fields(domains_len=domains.len()))]
+#[instrument(skip(whois_client, rdap_client, gsb_client, ssl_mate_client, domains), fields(domains_len=domains.len()))]
 pub async fn convert_domains(
     db_state: &DBState,
     whois_client: &WhoisClient,
     rdap_client: &RDAPClient,
+    ssl_mate_client: &SslMateClient,
     gsb_client: &Option<SafebrowsingClient>,
     domains: Vec<DetectedDomainWithId>,
 ) -> Vec<i64> {
@@ -255,12 +301,12 @@ pub async fn convert_domains(
         add_len + mod_len
     );
 
+    let domains_add = get_info_for_domains(add, whois_client, rdap_client, gsb_client).await;
+
+    let domains_add = add_certs(ssl_mate_client, domains_add).await;
+
     // Attempt to add new domains to the db
-    let add_domain_results = add_domains_to_db(
-        conn,
-        get_info_for_domains(add, whois_client, rdap_client, gsb_client).await,
-    )
-    .await;
+    let add_domain_results = add_domains_to_db(conn, domains_add).await;
 
     debug!("Got to rows to delete");
 

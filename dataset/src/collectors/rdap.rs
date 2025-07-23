@@ -91,7 +91,10 @@ impl RDAPClient {
         let query = QueryType::from_str(root)?;
 
         trace!("Checking if response in cache");
-        let cache_value = (&self.cache).get_from_cache(url.to_string()).await.unwrap_or_default();
+        let cache_value = (&self.cache)
+            .get_from_cache(url.to_string())
+            .await
+            .unwrap_or_default();
 
         if cache_value.is_some() {
             trace!("RDAP Response in cache");

@@ -8,6 +8,7 @@ pub(super) mod phishtank;
 pub(crate) mod rdap;
 /// Google safebrowsing
 pub(super) mod safebrowsing;
+pub(super) mod sslmate;
 /// Official Whois Data
 pub(super) mod whois;
 

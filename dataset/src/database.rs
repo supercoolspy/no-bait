@@ -1,3 +1,4 @@
+use crate::collectors::sslmate::SslMateResponse;
 use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use futures::{FutureExt, StreamExt};
 use icann_rdap_common::prelude::RdapResponse;
@@ -108,7 +109,7 @@ impl DBState {
 pub enum DomainInfo {
     WhoisInfo(String),
     RDAPInfo(RdapResponse),
-    None
+    None,
 }
 
 /// A processed domain that can be added to the training set
@@ -116,6 +117,7 @@ pub enum DomainInfo {
 pub(crate) struct Domain {
     pub(crate) url: Url,
     pub(crate) whois_info: DomainInfo,
+    pub(crate) cert_info: Option<SslMateResponse>,
     pub(crate) collectors: CollectorColumn,
 }
 

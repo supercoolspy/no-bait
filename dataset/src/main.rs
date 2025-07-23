@@ -5,6 +5,7 @@ mod database;
 mod processor;
 
 use crate::collectors::rdap::RDAPClient;
+use crate::collectors::sslmate::SslMateClient;
 use crate::collectors::whois::WhoisClient;
 use crate::database::{DBState, init_db};
 use crate::processor::create_processor;
@@ -23,7 +24,7 @@ use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use std::sync::Arc;
-use tldextract::TldOption;
+use tldextract::{TldExtractor, TldOption};
 use tracing::debug;
 use tracing::level_filters::LevelFilter;
 
@@ -66,6 +67,22 @@ async fn get_gsb_client(
 
     let client = SafebrowsingClient::new(client, gsb_api_key, memory, db_state).await;
     debug!("Created GSB client");
+
+    client
+}
+
+async fn get_ssl_mate_client(
+    client: Arc<ClientWithMiddleware>,
+    tld_extractor: Arc<TldExtractor>,
+    memory: bool,
+    db_state: Arc<DBState>,
+) -> SslMateClient {
+    let ssl_mate_api_key =
+        std::env::var("SSLMATE_API_KEY").expect("Should be able to get ssl mate api key");
+
+    let client =
+        SslMateClient::new(client, ssl_mate_api_key, memory, db_state, tld_extractor).await;
+    debug!("Created SslMate client");
 
     client
 }
@@ -136,7 +153,7 @@ async fn main() {
         Arc::new(WhoisClient::new(args.db_only, db_state.clone(), tld_extractor.clone()).await);
 
     let rdap_client =
-        Arc::new(RDAPClient::new(args.db_only, db_state.clone(), tld_extractor).await);
+        Arc::new(RDAPClient::new(args.db_only, db_state.clone(), tld_extractor.clone()).await);
 
     let client = get_reqwest_middleware_client();
 
@@ -144,6 +161,15 @@ async fn main() {
         db_state.clone(),
         whois.clone(),
         rdap_client,
+        Arc::new(
+            get_ssl_mate_client(
+                client.clone(),
+                tld_extractor.clone(),
+                args.db_only,
+                db_state.clone(),
+            )
+            .await,
+        ),
         if args.use_gsb {
             Arc::new(Some(
                 get_gsb_client(client.clone(), args.db_only, db_state.clone()).await,

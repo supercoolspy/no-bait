@@ -142,7 +142,10 @@ impl ToDetectedDomain for PhishTankDataset {
             })
             .filter(|d| d.as_ref().is_ok_and(|d| d.url.domain().is_some()))
             // `.tk` Domains will fail since the registry is down
-            .filter(|d| d.as_ref().is_ok_and(|d| d.url.domain().unwrap().split(".").last().unwrap() != "tk"))
+            .filter(|d| {
+                d.as_ref()
+                    .is_ok_and(|d| d.url.domain().unwrap().split(".").last().unwrap() != "tk")
+            })
             .collect()
     }
 }

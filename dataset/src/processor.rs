@@ -1,5 +1,6 @@
 use crate::collectors::rdap::RDAPClient;
 use crate::collectors::safebrowsing::SafebrowsingClient;
+use crate::collectors::sslmate::SslMateClient;
 use crate::collectors::whois::WhoisClient;
 use crate::converter::convert_domains;
 use crate::database::{
@@ -33,6 +34,7 @@ pub(super) fn create_processor(
     db_state: Arc<DBState>,
     whois: Arc<WhoisClient>,
     rdap_client: Arc<RDAPClient>,
+    ssl_mate_client: Arc<SslMateClient>,
     gsb_client: Arc<Option<SafebrowsingClient>>,
     mut channel_receiver: Receiver<usize>,
 ) {
@@ -46,13 +48,29 @@ pub(super) fn create_processor(
                 let amount = amount_op.unwrap();
 
                 error!("Processing {} domains", amount);
-                process_domains(&db_state, &whois, &rdap_client, &gsb_client, amount).await
+                process_domains(
+                    &db_state,
+                    &whois,
+                    &rdap_client,
+                    &ssl_mate_client,
+                    &gsb_client,
+                    amount,
+                )
+                .await
             } else {
                 // Timeout hit, check from db
                 let amount = 1000;
 
                 error!("Processing {} domains", amount);
-                process_domains(&db_state, &whois, &rdap_client, &gsb_client, amount).await;
+                process_domains(
+                    &db_state,
+                    &whois,
+                    &rdap_client,
+                    &ssl_mate_client,
+                    &gsb_client,
+                    amount,
+                )
+                .await;
             };
         }
     });
@@ -62,6 +80,7 @@ async fn process_domains(
     db_state: &DBState,
     whois: &WhoisClient,
     rdap_client: &RDAPClient,
+    ssl_mate_client: &SslMateClient,
     gsb_client: &Option<SafebrowsingClient>,
     amount: usize,
 ) {
@@ -85,7 +104,15 @@ async fn process_domains(
 
     info!("Got {} pending domains", pending.len());
 
-    let rows_to_delete = convert_domains(db_state, whois, rdap_client, &gsb_client, pending).await;
+    let rows_to_delete = convert_domains(
+        db_state,
+        whois,
+        rdap_client,
+        ssl_mate_client,
+        &gsb_client,
+        pending,
+    )
+    .await;
 
     let remove_res = remove_pending_domains(db_state.get_connection(), rows_to_delete).await;
     if remove_res.is_err() {
@@ -99,8 +126,8 @@ async fn process_domains(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use crate::collectors::rdap::RDAPClient;
+    use crate::collectors::sslmate::SslMateClient;
     use crate::collectors::whois::WhoisClient;
     use crate::collectors::{
         CollectorSpecificInfo, DetectedDomain, DomainCollectorInfo, ToDetectedDomain, phishstorm,
@@ -109,9 +136,10 @@ mod tests {
     use crate::converter::convert_domains;
     use crate::database::{DBState, DetectedDomainWithId, DomainInfo, DomainWithId};
     use crate::tests::{DB_STATE, TLD_EXTRACTOR, init};
+    use crate::{converter, get_gsb_client, get_reqwest_middleware_client, get_ssl_mate_client};
     use rand::prelude::{IndexedRandom, IteratorRandom};
+    use std::sync::Arc;
     use url::Url;
-    use crate::converter;
 
     async fn process_single_named(domain: &str) {
         let url: Url = domain.parse().expect("Should be able to parse domain");
@@ -126,22 +154,52 @@ mod tests {
             },
         };
 
-        process_domains(vec![test_domain],  |db_state, whois_client, rdap_client, domains| async move {
-            convert_domains(&db_state, &whois_client, &rdap_client, &None, domains).await
-        }).await;
+        process_domains(
+            vec![test_domain],
+            |db_state, whois_client, rdap_client, ssl_mate_client, domains| async move {
+                convert_domains(
+                    &db_state,
+                    &whois_client,
+                    &rdap_client,
+                    &ssl_mate_client,
+                    &None,
+                    domains,
+                )
+                .await
+            },
+        )
+        .await;
     }
 
     async fn process_domains_simple(domains: Vec<DetectedDomain>) {
-        process_domains(domains,  |db_state, whois_client, rdap_client, domains| async move {
-            convert_domains(&db_state, &whois_client, &rdap_client, &None, domains).await
-        }).await;
+        process_domains(
+            domains,
+            |db_state, whois_client, rdap_client, ssl_mate_client, domains| async move {
+                convert_domains(
+                    &db_state,
+                    &whois_client,
+                    &rdap_client,
+                    &ssl_mate_client,
+                    &None,
+                    domains,
+                )
+                .await
+            },
+        )
+        .await;
     }
 
     async fn process_domains<F, FnOutput, T>(domains: Vec<DetectedDomain>, function: F) -> Vec<T>
     where
-        F: Fn(Arc<DBState>, WhoisClient, RDAPClient, Vec<DetectedDomainWithId>) -> FnOutput,
-        FnOutput: Future<Output = Vec<T>>
-     {
+        F: Fn(
+            Arc<DBState>,
+            WhoisClient,
+            RDAPClient,
+            SslMateClient,
+            Vec<DetectedDomainWithId>,
+        ) -> FnOutput,
+        FnOutput: Future<Output = Vec<T>>,
+    {
         init(false).await;
 
         let db_state = DB_STATE
@@ -152,6 +210,18 @@ mod tests {
 
         let rdap_client = RDAPClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;
         let whois_client = WhoisClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;
+        let ssl_mate_client = get_ssl_mate_client(
+            get_reqwest_middleware_client(),
+            TLD_EXTRACTOR.clone(),
+            true,
+            DB_STATE
+                .get()
+                .expect("DB State should be non-null")
+                .lock()
+                .await
+                .clone(),
+        )
+        .await;
 
         for domain in &domains {
             let url = domain.url.as_str();
@@ -173,12 +243,18 @@ mod tests {
 
         let amount = test_domains.len();
 
-        let row_result =
-            function(db_state.clone(), whois_client, rdap_client, test_domains).await;
+        let row_result = function(
+            db_state.clone(),
+            whois_client,
+            rdap_client,
+            ssl_mate_client,
+            test_domains,
+        )
+        .await;
 
         assert_eq!(row_result.len(), amount);
 
-         row_result
+        row_result
     }
 
     #[tokio::test]
@@ -193,7 +269,9 @@ mod tests {
 
     #[tokio::test]
     async fn process_single_none() {
-        let url: Url = "https://nic.co.nr".parse().expect("Should be able to parse domain");
+        let url: Url = "https://nic.co.nr"
+            .parse()
+            .expect("Should be able to parse domain");
 
         let test_domain = DetectedDomain {
             url: url.clone(),
@@ -205,10 +283,33 @@ mod tests {
             },
         };
 
-        let domains: Vec<DomainWithId> = process_domains(vec![test_domain],  |db_state, whois_client, rdap_client, domains| async move {
-            converter::test_support::get_info_for_domains(domains, &whois_client, &rdap_client, &None).await.collect()
-        }).await;
-        assert!(matches!(domains.first().expect("Should be able to get first domain").domain.whois_info, DomainInfo::None));
+        let domains: Vec<DomainWithId> = process_domains(
+            vec![test_domain],
+            |db_state, whois_client, rdap_client, ssl_mate_client, domains| async move {
+                converter::test_support::get_info_for_domains(
+                    domains,
+                    &whois_client,
+                    &rdap_client,
+                    &None,
+                )
+                .await
+                .collect()
+            },
+        )
+        .await;
+        assert!(matches!(
+            domains
+                .first()
+                .expect("Should be able to get first domain")
+                .domain
+                .whois_info,
+            DomainInfo::None
+        ));
+    }
+
+    #[tokio::test]
+    async fn process_single_utf16() {
+        process_single_named("https://registro.br").await
     }
 
     #[tokio::test]
