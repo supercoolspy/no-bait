@@ -49,7 +49,9 @@ impl WhoisClient {
         db_state: Arc<DBState>,
         tld_extractor: Arc<TldExtractor>,
     ) -> Self {
-        let whois = Whois::builder().build().expect("Should be able to load default");
+        let whois = Whois::builder()
+            .build()
+            .expect("Should be able to load default");
         debug!("Loaded Whois server data");
 
         Self {
