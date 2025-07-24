@@ -28,8 +28,6 @@ use tldextract::{TldExtractor, TldOption};
 use tracing::debug;
 use tracing::level_filters::LevelFilter;
 
-const WHOIS_SERVERS: &str = include_str!("../assets/servers.json");
-
 #[derive(Parser, Debug)]
 #[command(name = "program")]
 struct Arguments {

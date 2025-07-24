@@ -1,5 +1,4 @@
 use crate::database::{Cache, DBState, DatabaseError};
-use reqwest::StatusCode;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

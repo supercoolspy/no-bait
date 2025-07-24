@@ -36,9 +36,6 @@ pub enum RDAPError {
     #[error("No Suffix Parsable {0}")]
     NoSuffix(Url),
 
-    #[error("No related link")]
-    NoRelated,
-
     #[error("No href on link")]
     NoHREF,
 }
