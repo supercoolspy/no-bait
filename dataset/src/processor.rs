@@ -214,12 +214,7 @@ mod tests {
             get_reqwest_middleware_client(),
             TLD_EXTRACTOR.clone(),
             true,
-            DB_STATE
-                .get()
-                .expect("DB State should be non-null")
-                .lock()
-                .await
-                .clone(),
+            db_state.clone(),
         )
         .await;
 

@@ -104,7 +104,7 @@ impl SslMateClient {
             .get(format!(
                 "https://api.certspotter.com/v1/issuances\
                 ?domain={}&include_subdomains={}&expand=dns_names&expand=issuer&expand=cert_der",
-                include_subdomains, domain
+                domain, include_subdomains
             ))
             .bearer_auth(&self.api_key)
             .send()
