@@ -1,11 +1,11 @@
-use crate::WHOIS_SERVERS;
 use crate::database::{Cache, DBState, DatabaseError};
 use std::sync::Arc;
 use thiserror::Error;
 use tldextract::TldExtractor;
 use tracing::{debug, instrument, trace};
 use url::Url;
-use whois_rust::{WhoIs, WhoIsLookupOptions};
+use whois_that::whois::Whois;
+use whois_that::WhoisError;
 
 #[derive(Error, Debug)]
 pub(crate) enum WhoIsError {
@@ -28,7 +28,7 @@ pub(crate) enum WhoIsError {
     NoSuffix(Url),
 
     #[error("Whois lookup error {0}")]
-    WhoIsLookupError(#[from] whois_rust::WhoIsError),
+    WhoIsLookupError(#[from] WhoisError),
 
     #[error("Database (Cache) Error: {0}")]
     DatabaseError(#[from] DatabaseError),
@@ -38,7 +38,7 @@ pub(crate) enum WhoIsError {
 }
 
 pub struct WhoisClient {
-    whois: WhoIs,
+    whois: Whois,
     cache: Cache<String>,
     tld_extractor: Arc<TldExtractor>,
 }
@@ -49,7 +49,7 @@ impl WhoisClient {
         db_state: Arc<DBState>,
         tld_extractor: Arc<TldExtractor>,
     ) -> Self {
-        let whois = WhoIs::from_string(WHOIS_SERVERS).expect("Should be able to load servers");
+        let whois = Whois::builder().build().expect("Should be able to load default");
         debug!("Loaded Whois server data");
 
         Self {
@@ -90,32 +90,16 @@ impl WhoisClient {
         }
         trace!("Whois Response not in cache");
 
-        let server = self.whois.get_server_by_tld(root);
-        trace!("Server: {:?}", server);
+        let info = self.whois.lookup_domain_info(root);
+        trace!("Server: {:?}", info);
 
-        if server.is_none() {
+        if info.is_none() {
             return Err(WhoIsError::NoWhois);
         }
 
-        let server = server.unwrap();
+        let info = info.unwrap();
 
-        let mut options = WhoIsLookupOptions::from_string(root)?;
-
-        options.server = Some(server.clone());
-        trace!("Whois lookup options: {:?}", options);
-
-        let whois_data_res = self.whois.lookup_async(options).await;
-
-        if whois_data_res.as_ref().is_err_and(|e| match e {
-            whois_rust::WhoIsError::MapError(message) => {
-                **message == *"No whois server is known for this kind of object."
-            }
-            _ => false,
-        }) {
-            return Err(WhoIsError::NoWhois);
-        }
-
-        let whois_data = whois_data_res?;
+        let whois_data = self.whois.lookup(info).await?;
 
         (&self.cache)
             .add_to_cache(domain.to_string(), &whois_data)
