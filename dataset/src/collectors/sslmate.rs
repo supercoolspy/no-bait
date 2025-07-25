@@ -131,3 +131,61 @@ impl SslMateClient {
         Ok(response)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::Cache;
+    use crate::database::tests::get_test_db_state;
+    use crate::tests::TLD_EXTRACTOR;
+    use crate::{get_reqwest_middleware_client, get_ssl_mate_client};
+
+    #[tokio::test]
+    /// Test whether the ssl_mate cache works
+    async fn test_sslmate_cache() {
+        let db_state = get_test_db_state().await;
+        let client = get_reqwest_middleware_client();
+
+        let test_cache: Cache<SslMateResponse> =
+            Cache::new(true, db_state.clone(), "test_sslmate".to_string())
+                .await
+                .expect("Should be able to create test cache");
+
+        let mut ssl_client =
+            get_ssl_mate_client(client, TLD_EXTRACTOR.clone(), true, db_state).await;
+
+        ssl_client.cache = test_cache;
+
+        let test_domain = "example.com";
+        let mock_response = vec![SslMateResponseElement {
+            id: "test-id".to_string(),
+            tbs_sha256: "test-tbs-sha".to_string(),
+            cert_sha256: "test-cert-sha".to_string(),
+            dns_names: vec!["example.com".to_string(), "www.example.com".to_string()],
+            pubkey_sha256: "test-pubkey-sha".to_string(),
+            issuer: Issuer {
+                friendly_name: "Test CA".to_string(),
+                pubkey_sha256: "test-issuer-pubkey-sha".to_string(),
+                name: "Test Certification Authority".to_string(),
+            },
+            not_before: "2023-01-01T00:00:00Z".to_string(),
+            not_after: "2024-01-01T00:00:00Z".to_string(),
+            revoked: false,
+            cert_der: "test-cert-der".to_string(),
+        }];
+
+        ssl_client
+            .cache
+            .add_to_cache(test_domain.to_string(), &mock_response)
+            .await
+            .expect("Should be able to add to cache");
+
+        let lookup_result = ssl_client.get_certs(test_domain).await;
+
+        assert!(lookup_result.is_ok(), "Lookup should succeed");
+        let certs = lookup_result.unwrap();
+        assert_eq!(certs.len(), 1, "Should retrieve one certificate");
+        assert_eq!(certs[0].id, "test-id", "Certificate ID should match");
+        assert_eq!(certs[0].dns_names.len(), 2, "Should have two DNS names");
+    }
+}

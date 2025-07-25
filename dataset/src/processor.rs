@@ -134,9 +134,10 @@ mod tests {
         phishtank,
     };
     use crate::converter::convert_domains;
+    use crate::database::tests::get_test_db_state;
     use crate::database::{DBState, DetectedDomainWithId, DomainInfo, DomainWithId};
-    use crate::tests::{DB_STATE, TLD_EXTRACTOR, init};
-    use crate::{converter, get_gsb_client, get_reqwest_middleware_client, get_ssl_mate_client};
+    use crate::tests::{TLD_EXTRACTOR, init};
+    use crate::{converter, get_reqwest_middleware_client, get_ssl_mate_client};
     use rand::prelude::{IndexedRandom, IteratorRandom};
     use std::sync::Arc;
     use url::Url;
@@ -202,11 +203,7 @@ mod tests {
     {
         init(false).await;
 
-        let db_state = DB_STATE
-            .get()
-            .expect("DB State should be non-null")
-            .lock()
-            .await;
+        let db_state = get_test_db_state().await;
 
         let rdap_client = RDAPClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;
         let whois_client = WhoisClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;

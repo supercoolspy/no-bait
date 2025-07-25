@@ -72,7 +72,7 @@ impl RDAPClient {
     /// Per most registry's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
     #[instrument(skip(self), err)]
     pub(crate) async fn get_rdap_data(&self, url: Url) -> Result<RdapResponse, RDAPError> {
-        let domain = url.host_str().ok_or(RDAPError::NoDomain(url.clone()))?;
+        let domain = url.domain().ok_or(RDAPError::NoDomain(url.clone()))?;
 
         let extractor_info = self.tld_extractor.extract(domain)?;
         let root = &format!(
@@ -132,6 +132,96 @@ impl RDAPClient {
             Ok(data)
         } else {
             Err(RDAPError::NoDomain(url))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::Cache;
+    use crate::database::tests::get_test_db_state;
+    use crate::tests::TLD_EXTRACTOR;
+    use icann_rdap_common::prelude::{Domain, RdapResponse};
+    use url::Url;
+
+    #[tokio::test]
+    /// Test whether the rdap cache works
+    async fn test_rdap_cache() {
+        let db_state = get_test_db_state().await;
+
+        let test_cache: Cache<RdapResponse> = Cache::new(
+            true, // use memory cache
+            db_state.clone(),
+            "test_rdap".to_string(),
+        )
+        .await
+        .expect("Should be able to create test cache");
+
+        let mut client = RDAPClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;
+
+        client.cache = test_cache;
+
+        let test_url = Url::parse("https://example.dev").unwrap();
+
+        let mock_domain = Domain::builder()
+            .ldh_name("example.dev")
+            .handle("EXAMPLE.DEV")
+            .status("active")
+            .link(
+                Link::builder()
+                    .value("https://rdap.example.com/domain/example.dev")
+                    .href(Url::parse("https://rdap.example.com/domain/example.dev").unwrap())
+                    .rel("self")
+                    .media_type("application/rdap+json")
+                    .build(),
+            )
+            .build();
+
+        let test_rdap_response = RdapResponse::Domain(Box::from(mock_domain));
+
+        client
+            .cache
+            .add_to_cache(test_url.to_string(), &test_rdap_response)
+            .await
+            .expect("Should be able to add to cache");
+
+        let lookup_result = client.get_rdap_data(test_url.clone()).await;
+
+        assert!(lookup_result.is_ok(), "Lookup should succeed");
+
+        match lookup_result.unwrap() {
+            RdapResponse::Domain(domain) => {
+                assert_eq!(
+                    domain.ldh_name(),
+                    Some("example.dev"),
+                    "Domain name should match"
+                );
+                assert_eq!(
+                    domain.handle(),
+                    Some("EXAMPLE.DEV"),
+                    "Domain handle should match"
+                );
+                assert!(
+                    domain.status().contains(&"active".to_string()),
+                    "Domain status should be active"
+                );
+
+                // Verify the link is preserved
+                let links = domain.links();
+                assert!(!links.is_empty(), "Domain should have links");
+
+                if let Some(link) = links.iter().find(|l| l.is_relation("self")) {
+                    assert_eq!(
+                        link.href.as_ref().map(|u| u.as_str()),
+                        Some("https://rdap.example.com/domain/example.dev"),
+                        "Self link URL should match"
+                    );
+                } else {
+                    panic!("Domain should have a self link");
+                }
+            }
+            _ => assert!(false, "Should have retrieved a domain response"),
         }
     }
 }

@@ -169,6 +169,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
 
                             async move {
                                 if !cause.was_evicted() {
+                                    trace!(name = name.as_ref(), "Cause was not eviction");
                                     // We don't want to do anything if the program explicitly removed an entry
                                     return;
                                 }
@@ -180,6 +181,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
                                     &v,
                                 )
                                 .await;
+                                trace!(name = name.as_ref(), "Attempted to add to db cache");
 
                                 if res.is_err() {
                                     error!(
@@ -187,6 +189,8 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
                                         "Failed to add evicted entry to database cache: {}",
                                         res.expect_err("Checked if error")
                                     );
+                                } else {
+                                    trace!(name = name.as_ref(), "Succeeded in adding to cache");
                                 }
                             }
                             .boxed()
@@ -645,4 +649,94 @@ pub(crate) async fn remove_pending_domains(
     tx.commit().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::tests::{DB_STATE, init};
+    use std::sync::Arc;
+
+    pub async fn get_test_db_state() -> Arc<DBState> {
+        init(false).await;
+        DB_STATE
+            .get()
+            .expect("DB State should be non-null")
+            .lock()
+            .await
+            .clone()
+    }
+
+    #[tokio::test]
+    /// Test the cache using the database only
+    async fn test_cache_db() {
+        let db_state = get_test_db_state().await;
+        let cache: Cache<String> =
+            Cache::new(false, db_state.clone(), "test_db_only_cache".to_string())
+                .await
+                .expect("Should be able to create cache");
+
+        let test_key = "db-test.com".to_string();
+        let test_value = "DB test data".to_string();
+
+        cache
+            .add_to_cache(test_key.clone(), &test_value)
+            .await
+            .expect("Should be able to add to cache");
+
+        let result = cache
+            .get_from_cache(test_key.clone())
+            .await
+            .expect("Should be able to get from cache");
+
+        assert!(result.is_some(), "Result should be present");
+        assert_eq!(
+            result.unwrap(),
+            test_value,
+            "Retrieved value should match original"
+        );
+    }
+
+    #[tokio::test]
+    /// Test the cache first using db then memory to see if it can correctly get it from there
+    async fn test_cache_memory_fallback_to_db() {
+        let db_state = get_test_db_state().await;
+
+        // Store db only
+        {
+            let db_cache: Cache<String> =
+                Cache::new(false, db_state.clone(), "test_fallback_cache".to_string())
+                    .await
+                    .expect("Should be able to create cache");
+
+            let test_key = "fallback-test.com".to_string();
+            let test_value = "Fallback test data".to_string();
+
+            db_cache
+                .add_to_cache(test_key.clone(), &test_value)
+                .await
+                .expect("Should be able to add to DB cache");
+        }
+
+        // Read in memory
+        let memory_cache: Cache<String> = Cache::new(
+            true, // enable memory cache
+            db_state.clone(),
+            "test_fallback_cache".to_string(),
+        )
+        .await
+        .expect("Should be able to create cache");
+
+        let result = memory_cache
+            .get_from_cache("fallback-test.com".to_string())
+            .await
+            .expect("Should be able to get from cache");
+
+        assert!(result.is_some(), "Result should be present via DB fallback");
+        assert_eq!(
+            result.unwrap(),
+            "Fallback test data",
+            "Retrieved value should match original"
+        );
+    }
 }

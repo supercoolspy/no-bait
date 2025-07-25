@@ -8,7 +8,6 @@ description = "A tool to collect datasets for phishing detection"
 env_logger = "0.11.8"
 libsql = "0.9.8"
 tokio = { version = "1", features = ["full", "tracing"] }
-whois-that = { git = "https://github.com/supercoolspy/whois-that", branch = "master" }
 dotenvy = "0.15.7"
 serde = "1.0.219"
 serde_json = "1.0.140"
@@ -30,6 +29,7 @@ csv = "1.3.1"
 moka = { version = "0.12.10", features = ["future", "logging"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+whois-that = "0.1.1"
 
 [dev-dependencies]
 rand = "0.9.1"

@@ -4,8 +4,9 @@ use thiserror::Error;
 use tldextract::TldExtractor;
 use tracing::{debug, instrument, trace};
 use url::Url;
-use whois_that::whois::Whois;
 use whois_that::WhoisError;
+use whois_that::builder::WhoisBuilder;
+use whois_that::whois::Whois;
 
 #[derive(Error, Debug)]
 pub(crate) enum WhoIsError {
@@ -66,7 +67,7 @@ impl WhoisClient {
     #[instrument(skip(self), err)]
     pub async fn get_whois_domain(&self, url: &Url) -> Result<String, WhoIsError> {
         trace!("Getting whois info");
-        let domain = url.host_str().ok_or(WhoIsError::NoDomain(url.clone()))?;
+        let domain = url.domain().ok_or(WhoIsError::NoDomain(url.clone()))?;
         debug!("Domain: {}", domain);
 
         let extractor_info = self.tld_extractor.extract(domain)?;
@@ -108,5 +109,48 @@ impl WhoisClient {
             .await?;
 
         Ok(whois_data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::Cache;
+    use crate::database::tests::get_test_db_state;
+    use crate::tests::TLD_EXTRACTOR;
+    use url::Url;
+
+    #[tokio::test]
+    /// Test whether the whois cache is working correctly
+    async fn test_whois_cache() {
+        let db_state = get_test_db_state().await;
+
+        let test_cache: Cache<String> =
+            Cache::new(true, db_state.clone(), "test_whois".to_string())
+                .await
+                .expect("Should be able to create test cache");
+
+        let mut client = WhoisClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;
+
+        client.cache = test_cache;
+
+        let test_url = Url::parse("https://example.com").unwrap();
+        let test_whois_response =
+            "Domain Name: example.com\nRegistry Domain ID: 2336799_DOMAIN_COM-VRSN".to_string();
+
+        client
+            .cache
+            .add_to_cache(test_url.to_string(), &test_whois_response)
+            .await
+            .expect("Should be able to add to cache");
+
+        let lookup_result = client.get_whois_domain(&test_url).await;
+
+        assert!(lookup_result.is_ok(), "Lookup should succeed");
+        assert_eq!(
+            lookup_result.unwrap(),
+            test_whois_response,
+            "Retrieved response should match inserted response"
+        );
     }
 }
