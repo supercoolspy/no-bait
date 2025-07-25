@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 use tldextract::TldExtractor;
+use tracing::{error, instrument};
 
 #[derive(Debug, Error)]
 pub enum SslMateError {
@@ -83,6 +84,7 @@ impl SslMateClient {
     }
 
     /// Gets certs for a specified domain
+    #[instrument(skip(self), err)]
     pub async fn get_certs(&self, domain: &str) -> Result<SslMateResponse, SslMateError> {
         let cache_value = self
             .cache
