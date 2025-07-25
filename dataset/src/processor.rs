@@ -251,7 +251,7 @@ mod tests {
 
     #[tokio::test]
     async fn process_single_whois() {
-        process_single_named("https://google.com").await
+        process_single_named("https://example.com").await
     }
 
     #[tokio::test]
