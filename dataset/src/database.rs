@@ -294,9 +294,6 @@ pub enum DatabaseError {
     #[error("No Row where there should be one")]
     NoRow,
 
-    #[error("Could not convert column to type")]
-    ColumnConvert,
-
     #[error("Serde Json error: {0}")]
     SerdeJson(#[from] serde_json::Error),
 
@@ -305,9 +302,6 @@ pub enum DatabaseError {
 
     #[error("No Collector Found")]
     NoCollectorFound,
-
-    #[error("Parse error from string")]
-    ParseStr,
 }
 
 /// Connect to the database and return a DBState object

@@ -49,17 +49,15 @@ pub trait ToDetectedDomain {
 #[cfg(test)]
 mod tests {
     use crate::collectors::phishtank::get_latest_data;
-    use crate::collectors::rdap::{RDAPClient, RDAPError};
+    use crate::collectors::rdap::RDAPClient;
     use crate::collectors::{ToDetectedDomain, phishstorm, phishtank};
-    use crate::database::{DBState, connect_to_db};
+
     use crate::tests::{DB_STATE, TLD_EXTRACTOR, init};
     use crate::{get_gsb_client, get_reqwest_middleware_client};
     use icann_rdap_common::prelude::RdapResponse;
     use reqwest::Client;
     use reqwest_middleware::ClientBuilder;
-    use std::sync::{Arc, Once};
-    use tokio::sync::OnceCell;
-    use tracing::level_filters::LevelFilter;
+
     use url::Url;
 
     #[tokio::test]

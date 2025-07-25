@@ -3,7 +3,6 @@ use crate::collectors::{
     ToDetectedDomain,
 };
 use crate::database::DatabaseError;
-use futures::StreamExt;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelIterator;
 use reqwest_middleware::ClientWithMiddleware;

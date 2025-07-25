@@ -5,7 +5,6 @@ use tldextract::TldExtractor;
 use tracing::{debug, instrument, trace};
 use url::Url;
 use whois_that::WhoisError;
-use whois_that::builder::WhoisBuilder;
 use whois_that::whois::Whois;
 
 #[derive(Error, Debug)]

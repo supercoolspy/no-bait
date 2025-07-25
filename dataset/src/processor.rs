@@ -277,7 +277,7 @@ mod tests {
 
         let domains: Vec<DomainWithId> = process_domains(
             vec![test_domain],
-            |db_state, whois_client, rdap_client, ssl_mate_client, domains| async move {
+            |_db_state, whois_client, rdap_client, _ssl_mate_client, domains| async move {
                 converter::test_support::get_info_for_domains(
                     domains,
                     &whois_client,

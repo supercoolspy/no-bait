@@ -23,9 +23,6 @@ pub enum SafebrowsingError {
 
     #[error("Database (Cache) Error: {0}")]
     DatabaseError(#[from] DatabaseError),
-
-    #[error("No Threat Type even though Array has values")]
-    NoThreatType,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
