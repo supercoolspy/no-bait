@@ -1,11 +1,13 @@
-use crate::database::{Cache, DBState, DatabaseError};
+use crate::collectors::DomainInfoClient;
+use crate::database::{Cache, DBState, DatabaseError, DomainInfo};
+use async_trait::async_trait;
 use std::sync::Arc;
 use thiserror::Error;
 use tldextract::TldExtractor;
 use tracing::{debug, instrument, trace};
 use url::Url;
-use whois_that::WhoisError;
 use whois_that::whois::Whois;
+use whois_that::WhoisError;
 
 #[derive(Error, Debug)]
 pub(crate) enum WhoIsError {
@@ -40,14 +42,12 @@ pub(crate) enum WhoIsError {
 pub struct WhoisClient {
     whois: Whois,
     cache: Cache<String>,
-    tld_extractor: Arc<TldExtractor>,
 }
 
 impl WhoisClient {
     pub async fn new(
         memory: bool,
         db_state: Arc<DBState>,
-        tld_extractor: Arc<TldExtractor>,
     ) -> Self {
         let whois = Whois::builder()
             .build()
@@ -59,36 +59,26 @@ impl WhoisClient {
             cache: Cache::new(memory, db_state, "whois".to_string())
                 .await
                 .expect("Should be able to create cache"),
-            tld_extractor,
         }
     }
+}
+
+#[async_trait]
+impl DomainInfoClient for WhoisClient {
 
     #[instrument(skip(self), err)]
-    pub async fn get_whois_domain(&self, url: &Url) -> Result<String, WhoIsError> {
+    async fn get_info(&self, root: &str) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>> {
         trace!("Getting whois info");
-        let domain = url.domain().ok_or(WhoIsError::NoDomain(url.clone()))?;
-        debug!("Domain: {}", domain);
-
-        let extractor_info = self.tld_extractor.extract(domain)?;
-        let root = &format!(
-            "{}.{}",
-            extractor_info
-                .domain
-                .ok_or(WhoIsError::NoRoot(url.clone()))?,
-            extractor_info
-                .suffix
-                .ok_or(WhoIsError::NoSuffix(url.clone()))?
-        );
 
         trace!("Checking if response in cache");
         let cache_value = (&self.cache)
-            .get_from_cache(url.to_string())
+            .get_from_cache(root)
             .await
             .unwrap_or_default();
 
         if cache_value.is_some() {
             trace!("Whois Response in cache");
-            return Ok(cache_value.expect("Cache value should exist"));
+            return Ok(DomainInfo::WhoisInfo(cache_value.expect("Cache value should exist")));
         }
         trace!("Whois Response not in cache");
 
@@ -96,7 +86,7 @@ impl WhoisClient {
         trace!("Server: {:?}", info);
 
         if info.is_none() {
-            return Err(WhoIsError::NoWhois);
+            return Err(WhoIsError::NoWhois.into());
         }
 
         let info = info.unwrap();
@@ -104,52 +94,56 @@ impl WhoisClient {
         let whois_data = self.whois.lookup(info).await?;
 
         (&self.cache)
-            .add_to_cache(domain.to_string(), &whois_data)
+            .add_to_cache(root.to_string(), &whois_data)
             .await?;
 
-        Ok(whois_data)
+        Ok(DomainInfo::WhoisInfo(whois_data))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Cache;
     use crate::database::tests::get_test_db_state;
-    use crate::tests::TLD_EXTRACTOR;
-    use url::Url;
+    use crate::database::Cache;
 
     #[tokio::test]
     /// Test whether the whois cache is working correctly
     async fn test_whois_cache() {
-        let db_state = get_test_db_state().await;
+        let test_db_state = get_test_db_state().await;
+        let db_state = test_db_state.db_state.clone();
 
         let test_cache: Cache<String> =
             Cache::new(true, db_state.clone(), "test_whois".to_string())
                 .await
                 .expect("Should be able to create test cache");
 
-        let mut client = WhoisClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;
+        let mut client = WhoisClient::new(true, db_state.clone()).await;
 
         client.cache = test_cache;
 
-        let test_url = Url::parse("https://example.com").unwrap();
+        let test_domain = "example.com";
         let test_whois_response =
             "Domain Name: example.com\nRegistry Domain ID: 2336799_DOMAIN_COM-VRSN".to_string();
 
         client
             .cache
-            .add_to_cache(test_url.to_string(), &test_whois_response)
+            .add_to_cache(test_domain.to_string(), &test_whois_response)
             .await
             .expect("Should be able to add to cache");
 
-        let lookup_result = client.get_whois_domain(&test_url).await;
+        let lookup_result = client.get_info(test_domain).await;
 
         assert!(lookup_result.is_ok(), "Lookup should succeed");
-        assert_eq!(
-            lookup_result.unwrap(),
-            test_whois_response,
-            "Retrieved response should match inserted response"
-        );
+
+        if let DomainInfo::WhoisInfo(whois_data) = lookup_result.unwrap() {
+            assert_eq!(
+                whois_data,
+                test_whois_response,
+                "Retrieved response should match inserted response"
+            );
+        } else {
+            panic!("Expected WhoisInfo but got something else");
+        }
     }
 }

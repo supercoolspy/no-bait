@@ -4,25 +4,29 @@ mod converter;
 mod database;
 mod processor;
 
+use crate::collectors::autowhois::AutoWhoisClient;
 use crate::collectors::rdap::RDAPClient;
 use crate::collectors::sslmate::SslMateClient;
 use crate::collectors::whois::WhoisClient;
-use crate::database::{DBState, init_db};
+use crate::collectors::DomainInfoClient;
+use crate::database::{init_db, DBState, DomainInfo};
 use crate::processor::create_processor;
-use clap::{Parser, Subcommand, arg};
+use clap::{arg, Parser, Subcommand};
 use collectors::safebrowsing::SafebrowsingClient;
 use commands::{
-    phishstorm::{PhishStormCommand, phishstorm_command},
-    phishtank::{PhishTankCommand, phishtank_command},
-    safebrowsing::{SafebrowsingCommand, safebrowsing_command},
-    whois::{WhoIsCommand, whois_command},
+    phishstorm::{phishstorm_command, PhishStormCommand},
+    phishtank::{phishtank_command, PhishTankCommand},
+    safebrowsing::{safebrowsing_command, SafebrowsingCommand},
+    whois::{whois_command, WhoIsCommand},
 };
 use database::connect_to_db;
 use dotenvy::dotenv;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
+use reqwest_retry::RetryTransientMiddleware;
+use std::error::Error as StdError;
+use std::fmt;
 use std::sync::Arc;
 use tldextract::{TldExtractor, TldOption};
 use tracing::debug;
@@ -71,7 +75,6 @@ async fn get_gsb_client(
 
 async fn get_ssl_mate_client(
     client: Arc<ClientWithMiddleware>,
-    tld_extractor: Arc<TldExtractor>,
     memory: bool,
     db_state: Arc<DBState>,
 ) -> SslMateClient {
@@ -79,7 +82,22 @@ async fn get_ssl_mate_client(
         std::env::var("SSLMATE_API_KEY").expect("Should be able to get ssl mate api key");
 
     let client =
-        SslMateClient::new(client, ssl_mate_api_key, memory, db_state, tld_extractor).await;
+        SslMateClient::new(client, ssl_mate_api_key, memory, db_state).await;
+    debug!("Created SslMate client");
+
+    client
+}
+
+async fn get_auto_whois_client(
+    client: Arc<ClientWithMiddleware>,
+    memory: bool,
+    db_state: Arc<DBState>,
+) -> AutoWhoisClient {
+    let ssl_mate_api_key =
+        std::env::var("SSLMATE_API_KEY").expect("Should be able to get ssl mate api key");
+
+    let client =
+        AutoWhoisClient::new(client, ssl_mate_api_key, memory, db_state).await;
     debug!("Created SslMate client");
 
     client
@@ -147,22 +165,28 @@ async fn main() {
 
     let tld_extractor = Arc::new(TldOption::default().build());
 
-    let whois =
-        Arc::new(WhoisClient::new(args.db_only, db_state.clone(), tld_extractor.clone()).await);
+    let whois = Arc::new(WhoisClient::new(args.db_only, db_state.clone()).await);
 
-    let rdap_client =
-        Arc::new(RDAPClient::new(args.db_only, db_state.clone(), tld_extractor.clone()).await);
+    let rdap_client = Arc::new(RDAPClient::new(args.db_only, db_state.clone()).await);
 
     let client = get_reqwest_middleware_client();
 
+    let mut domain_info_processors: Vec<Arc<dyn DomainInfoClient>> = Vec::new();
+    domain_info_processors.push(Arc::new(get_auto_whois_client(
+        client.clone(),
+        args.db_only,
+        db_state.clone(),
+    ).await));
+    domain_info_processors.push(whois.clone());
+    domain_info_processors.push(rdap_client);
+
     create_processor(
         db_state.clone(),
-        whois.clone(),
-        rdap_client,
+        tld_extractor.clone(),
+        Arc::from(domain_info_processors),
         Arc::new(
             get_ssl_mate_client(
                 client.clone(),
-                tld_extractor.clone(),
                 args.db_only,
                 db_state.clone(),
             )
@@ -181,7 +205,7 @@ async fn main() {
 
     match args.command {
         Commands::WhoIs(command) => {
-            whois_command(&whois, command).await.unwrap();
+            whois_command(&whois, &tld_extractor, command).await.unwrap();
         }
         Commands::GoogleSafeBrowsing(command) => {
             safebrowsing_command(
@@ -206,19 +230,26 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::{DBState, connect_to_db};
+    use crate::database::{connect_to_db, DBState};
     use std::sync::{Arc, LazyLock, Once};
     use tldextract::{TldExtractor, TldOption};
-    use tokio::sync::{Mutex, OnceCell};
     use tracing::level_filters::LevelFilter;
 
     static INIT: Once = Once::new();
-
-    pub(crate) static DB_STATE: OnceCell<Mutex<Arc<DBState>>> = const { OnceCell::const_new() };
+    
     pub(crate) static TLD_EXTRACTOR: LazyLock<Arc<TldExtractor>> =
         LazyLock::new(|| Arc::new(TldOption::default().build()));
+    
+    pub async fn get_db_state(db_only: bool) -> Arc<DBState> {
+        Arc::new(
+            connect_to_db(false, db_only)
+                .await
+                .expect("Should be able to get db state")
+                .0,
+        )
+    }
 
-    pub async fn init(db_only: bool) {
+    pub fn init() {
         INIT.call_once(|| {
             tracing_subscriber::fmt()
                 .with_line_number(true)
@@ -231,16 +262,5 @@ mod tests {
                 .with_thread_ids(true)
                 .init();
         });
-
-        DB_STATE
-            .get_or_init(|| async {
-                return Mutex::new(Arc::new(
-                    connect_to_db(false, db_only)
-                        .await
-                        .expect("Should be able to get db state")
-                        .0,
-                ));
-            })
-            .await;
     }
 }

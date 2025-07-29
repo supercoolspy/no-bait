@@ -3,10 +3,11 @@ use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use futures::{FutureExt, StreamExt};
 use icann_rdap_common::prelude::RdapResponse;
 use libsql::params::IntoValue;
-use libsql::{Builder, Connection, Row, params};
+use libsql::{params, Builder, Connection, Row};
 use moka::future::Cache as MemoryCache;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fmt::Debug;
 use std::mem::discriminant;
 use std::path::Path;
@@ -14,7 +15,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, instrument, trace};
 use url::Url;
 
@@ -108,6 +109,7 @@ impl DBState {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum DomainInfo {
     WhoisInfo(String),
+    AutoWhoisInfo(Value),
     RDAPInfo(RdapResponse),
     None,
 }
@@ -238,9 +240,9 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync> Cache<T> {
     }
 
     /// Gets whether an item exists in the cache
-    pub async fn get_from_cache(&self, key: String) -> Result<Option<T>, DatabaseError> {
+    pub async fn get_from_cache(&self, key: &str) -> Result<Option<T>, DatabaseError> {
         if self.using_memory_cache() {
-            let memory_res = self.get_memory_cache().get(&key).await;
+            let memory_res = self.get_memory_cache().get(key).await;
 
             if memory_res.is_some() {
                 return Ok(memory_res);
@@ -250,7 +252,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync> Cache<T> {
         self.get_cache_from_db(key).await
     }
 
-    async fn get_cache_from_db(&self, key: String) -> Result<Option<T>, DatabaseError> {
+    async fn get_cache_from_db(&self, key: &str) -> Result<Option<T>, DatabaseError> {
         let mut res = self
             .db_state
             .get_connection()
@@ -648,25 +650,73 @@ pub(crate) async fn remove_pending_domains(
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::tests::{DB_STATE, init};
+    use crate::tests::init;
     use std::sync::Arc;
 
-    pub async fn get_test_db_state() -> Arc<DBState> {
-        init(false).await;
-        DB_STATE
-            .get()
-            .expect("DB State should be non-null")
-            .lock()
+    /// Wrapper for test database state that automatically cleans up the database file when dropped
+    pub struct TestDBState {
+        pub db_state: Arc<DBState>,
+        pub db_path: String,
+    }
+
+    impl Drop for TestDBState {
+        fn drop(&mut self) {
+            // Clean up the test database file
+            if std::path::Path::new(&self.db_path).exists() {
+                if let Err(e) = std::fs::remove_file(&self.db_path) {
+                    eprintln!("Warning: Failed to clean up test database {}: {}", self.db_path, e);
+                } else {
+                    println!("Cleaned up test database: {}", self.db_path);
+                }
+            }
+        }
+    }
+
+    /// Connect to a unique test database to avoid lock conflicts
+    #[instrument(err)]
+    pub(super) async fn connect_to_test_db(
+        db_only: bool,
+    ) -> libsql::Result<(TestDBState, Receiver<usize>)> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        // Generate a unique database file name for this test
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let thread_id = std::thread::current().id();
+        let db_path = format!("./test_phishing_{}_{:?}.db", timestamp, thread_id);
+
+        info!("Using test database: {}", db_path);
+        let db = Builder::new_local(Path::new(&db_path)).build().await?;
+
+        let conn = db.connect()?;
+
+        init_db(&conn).await.unwrap();
+
+        let (db_state, receiver) = DBState::new(conn, db_only);
+
+        Ok((TestDBState {
+            db_state: Arc::new(db_state),
+            db_path: db_path.clone()
+        }, receiver))
+    }
+
+    pub async fn get_test_db_state() -> TestDBState {
+        init();
+
+        connect_to_test_db(false)
             .await
-            .clone()
+            .expect("Should be able to get test db state")
+            .0
     }
 
     #[tokio::test]
     /// Test the cache using the database only
     async fn test_cache_db() {
-        let db_state = get_test_db_state().await;
+        let test_db_state = get_test_db_state().await;
         let cache: Cache<String> =
-            Cache::new(false, db_state.clone(), "test_db_only_cache".to_string())
+            Cache::new(false, test_db_state.db_state.clone(), "test_db_only_cache".to_string())
                 .await
                 .expect("Should be able to create cache");
 
@@ -679,7 +729,7 @@ pub mod tests {
             .expect("Should be able to add to cache");
 
         let result = cache
-            .get_from_cache(test_key.clone())
+            .get_from_cache(&test_key)
             .await
             .expect("Should be able to get from cache");
 
@@ -694,12 +744,12 @@ pub mod tests {
     #[tokio::test]
     /// Test the cache first using db then memory to see if it can correctly get it from there
     async fn test_cache_memory_fallback_to_db() {
-        let db_state = get_test_db_state().await;
+        let test_db_state = get_test_db_state().await;
 
         // Store db only
         {
             let db_cache: Cache<String> =
-                Cache::new(false, db_state.clone(), "test_fallback_cache".to_string())
+                Cache::new(false, test_db_state.db_state.clone(), "test_fallback_cache".to_string())
                     .await
                     .expect("Should be able to create cache");
 
@@ -715,14 +765,14 @@ pub mod tests {
         // Read in memory
         let memory_cache: Cache<String> = Cache::new(
             true, // enable memory cache
-            db_state.clone(),
+            test_db_state.db_state.clone(),
             "test_fallback_cache".to_string(),
         )
         .await
         .expect("Should be able to create cache");
 
         let result = memory_cache
-            .get_from_cache("fallback-test.com".to_string())
+            .get_from_cache("fallback-test.com")
             .await
             .expect("Should be able to get from cache");
 

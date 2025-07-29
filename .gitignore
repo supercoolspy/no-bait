@@ -200,6 +200,7 @@ cython_debug/
 dataset/phishing.db
 dataset/phishtank.json.gz
 dataset/phishstorm.csv
+dataset/test_phishing*.db
 # Devenv
 .devenv*
 devenv.local.nix

@@ -1,18 +1,23 @@
+use std::fmt::Display;
+use std::sync::Arc;
+use std::error::Error as StdError;
 use crate::collectors::rdap::{RDAPClient, RDAPError};
 use crate::collectors::safebrowsing::{SafebrowsingClient, SafebrowsingError};
 use crate::collectors::sslmate::{SslMateClient, SslMateError};
 use crate::collectors::whois::{WhoIsError, WhoisClient};
+use crate::collectors::{DomainInfoClient, TldUrl};
 use crate::database::{
-    DBState, DatabaseError, DetectedDomainWithId, Domain, DomainInfo, DomainWithId, add_domain,
-    check_exists, update_domain,
+    add_domain, check_exists, update_domain, DBState, DatabaseError, DetectedDomainWithId, Domain,
+    DomainInfo, DomainWithId,
 };
-use futures::StreamExt;
 use futures::stream::iter;
+use futures::StreamExt;
 use icann_rdap_client::RdapClientError;
 use libsql::Connection;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
+use tldextract::TldExtractor;
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
@@ -83,78 +88,62 @@ async fn check_domains_exist(
 #[instrument(skip_all, fields(domains_len=domains.len()))]
 async fn get_info_for_domains(
     domains: Vec<DetectedDomainWithId>,
-    whois_client: &WhoisClient,
-    rdap_client: &RDAPClient,
+    domain_info_processor: &Vec<Arc<dyn DomainInfoClient>>,
+    tld_extractor: &TldExtractor,
     gsb_client: &Option<SafebrowsingClient>,
 ) -> impl Iterator<Item = DomainWithId> {
     // Add whois/rdap info to domains that aren't already in the database
     let domains_to_add = iter(domains.into_iter())
         .map(|domain| async move {
-            let domain_res = async move {
-                trace!(domain=?domain, "Getting info");
-                let url = domain.domain.url;
-                let res = whois_client.get_whois_domain(&url).await;
-                trace!(url=?url, row_id=domain.row_id, "Whois search result: {:?}", res);
+            let url = domain.domain.url;
 
-                // If rdap (and its google tlds) won't have whois info
-                if res.is_err() {
-                    if let Err(WhoIsError::NoWhois) = res {
-                        trace!(url=?url, row_id=domain.row_id, "Domain doesn't have whois info");
-                        // Get rdap info for domain
-                        let rdap_res = rdap_client.get_rdap_data(url.clone()).await;
-                        trace!("RDAP Search Results: {:?}", rdap_res);
-
-                        if let Ok(rdap) = rdap_res {
-                            Ok(DomainWithId {
-                                domain: Domain {
-                                    url,
-                                    whois_info: DomainInfo::RDAPInfo(rdap),
-                                    cert_info: None,
-                                    collectors: vec![domain.domain.collector_info],
-                                },
-                                row_id: domain.row_id,
-                            })
-                        } else {
-                            let rdap_err = rdap_res.expect_err("Already checked if error");
-
-                            if let RDAPError::RDAPClient(err) = &rdap_err {
-                                if matches!(err, &RdapClientError::BootstrapError(_)) {
-                                    debug!(
-                                        "RDAP Client Bootstrap error, assuming impossible lookup"
-                                    );
-                                    return Ok(DomainWithId {
-                                        domain: Domain {
-                                            url,
-                                            whois_info: DomainInfo::None,
-                                            cert_info: None,
-                                            collectors: vec![domain.domain.collector_info],
-                                        },
-                                        row_id: domain.row_id,
-                                    });
-                                }
-                            }
-
-                            return Err((url.clone(), ConverterError::from(rdap_err)));
-                        }
-                    } else {
-                        Err((url.clone(), ConverterError::Whois(res.err().unwrap())))
-                    }
-                } else {
-                    // We already checked if it was an error
-                    let whois = res.unwrap();
-
-                    Ok::<DomainWithId, (Url, ConverterError)>(DomainWithId {
-                        domain: Domain {
-                            url,
-                            whois_info: DomainInfo::WhoisInfo(whois),
-                            cert_info: None,
-                            collectors: vec![domain.domain.collector_info],
-                        },
-                        row_id: domain.row_id,
-                    })
-                }
+            // Handle TLD extraction without using the ? operator
+            let extract_result = tld_extractor.extract(url.as_str());
+            if let Err(err) = extract_result {
+                error!("TLD extraction error for {}: {}", url, err);
+                return Err((url, ConverterError::Database(DatabaseError::NoRow)));
             }
-            .await;
+
+            let tld_extract = extract_result.unwrap();
+
+            // Handle root domain extraction without using the ? operator
+            let root_result = tld_extract.as_root();
+            if let Err(err) = root_result {
+                error!("Root domain extraction error for {}: {}", url, err);
+                return Err((url, ConverterError::Database(DatabaseError::NoRow)));
+            }
+
+            let root = root_result.unwrap();
+            let mut domain_info = DomainInfo::None;
+
+            for (index, next) in domain_info_processor.iter().enumerate() {
+                if next.rate_limited() {
+                    trace!("Skipping {}, ratelimited", index);
+                    continue
+                }
+
+                let res = next.get_info(&root).await;
+
+                if let Ok(info) = res {
+                    trace!(url=?url, "Got domain info {:?}", info);
+                    domain_info = info;
+                    break
+                }
+
+                let err = res.expect_err("Should be error or breaked");
+
+                error!("Failed to get domain info from collector: {}", err);
+            }
+
+            let domain_res = Ok(DomainWithId {
+                domain: Domain {
+                    url,
+                    whois_info: domain_info,
+                    cert_info: None,
+                    collectors: vec![domain.domain.collector_info],
+                },
+                row_id: domain.row_id,
+            });
 
             if let Some(gsb_client) = gsb_client {
                 if let Ok(mut domain_with_id) = domain_res {
@@ -240,6 +229,7 @@ async fn add_domains_to_db(
 #[instrument(skip_all)]
 pub async fn add_certs(
     ssl_mate_client: &SslMateClient,
+    tld_extractor: &TldExtractor,
     domains: impl Iterator<Item = DomainWithId>,
 ) -> impl Iterator<Item = DomainWithId> {
     let rate_limited = &AtomicBool::new(false);
@@ -251,7 +241,15 @@ pub async fn add_certs(
             }
 
             if let Some(domain) = domain_with_id.domain.url.domain() {
-                let res = ssl_mate_client.get_certs(domain).await;
+                let extract_res = tld_extractor.extract(domain);
+
+                if let Err(err) = extract_res {
+                    error!("Failed to extract domain: {}", err);
+
+                    return domain_with_id;
+                }
+
+                let res = ssl_mate_client.get_certs(domain, extract_res.unwrap()).await;
 
                 if let Ok(response) = res {
                     domain_with_id.domain.cert_info = Some(response)
@@ -280,11 +278,11 @@ pub async fn add_certs(
 /// Processes a batch of domains into the database and returns the rowIds of the domains to delete.
 /// If adding a domain to the database fails for any reason, the rowId will not be returned.
 /// <u>**Only**</u> rowIds that are returned from this function should be removed from the database.
-#[instrument(skip(whois_client, rdap_client, gsb_client, ssl_mate_client, domains), fields(domains_len=domains.len()))]
+#[instrument(skip(domain_info_processor, tld_extractor, gsb_client, ssl_mate_client, domains), fields(domains_len=domains.len()))]
 pub async fn convert_domains(
     db_state: &DBState,
-    whois_client: &WhoisClient,
-    rdap_client: &RDAPClient,
+    tld_extractor: &TldExtractor,
+    domain_info_processor: &Vec<Arc<dyn DomainInfoClient>>,
     ssl_mate_client: &SslMateClient,
     gsb_client: &Option<SafebrowsingClient>,
     domains: Vec<DetectedDomainWithId>,
@@ -301,9 +299,9 @@ pub async fn convert_domains(
         add_len + mod_len
     );
 
-    let domains_add = get_info_for_domains(add, whois_client, rdap_client, gsb_client).await;
+    let domains_add = get_info_for_domains(add, domain_info_processor, tld_extractor, gsb_client).await;
 
-    let domains_add = add_certs(ssl_mate_client, domains_add).await;
+    let domains_add = add_certs(ssl_mate_client, tld_extractor, domains_add).await;
 
     // Attempt to add new domains to the db
     let add_domain_results = add_domains_to_db(conn, domains_add).await;
@@ -356,17 +354,20 @@ pub async fn convert_domains(
 
 #[cfg(test)]
 pub mod test_support {
-    use crate::collectors::rdap::RDAPClient;
+    use std::sync::Arc;
     use crate::collectors::safebrowsing::SafebrowsingClient;
-    use crate::collectors::whois::WhoisClient;
+    use crate::collectors::DomainInfoClient;
     use crate::database::{DetectedDomainWithId, DomainWithId};
+    use tldextract::TldExtractor;
 
     pub(crate) async fn get_info_for_domains(
         domains: Vec<DetectedDomainWithId>,
-        whois_client: &WhoisClient,
-        rdap_client: &RDAPClient,
+        tld_extractor: &TldExtractor,
+        domain_info_processor: &Vec<Arc<dyn DomainInfoClient>>,
         gsb_client: &Option<SafebrowsingClient>,
     ) -> impl Iterator<Item = DomainWithId> {
-        super::get_info_for_domains(domains, whois_client, rdap_client, gsb_client).await
+        super::get_info_for_domains(domains, domain_info_processor, tld_extractor, gsb_client).await
     }
 }
+
+

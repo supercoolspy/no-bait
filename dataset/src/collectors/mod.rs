@@ -1,8 +1,12 @@
+use crate::database::DomainInfo;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::net::{AddrParseError, IpAddr};
 use thiserror::Error;
+use tldextract::TldResult;
 use url::{ParseError, Url};
 
+pub(super) mod autowhois;
 pub(super) mod phishstorm;
 pub(super) mod phishtank;
 pub(crate) mod rdap;
@@ -46,25 +50,58 @@ pub trait ToDetectedDomain {
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError>;
 }
 
+pub trait TldUrl {
+    type Error;
+    fn as_root(&self) -> Result<String, Self::Error>;
+}
+
+#[derive(Debug, Error)]
+pub enum TldConvertError {
+    #[error("No Domain")]
+    NoDomain,
+
+    #[error("No Suffix")]
+    NoSuffix,
+}
+
+impl TldUrl for TldResult {
+    type Error = TldConvertError;
+
+    fn as_root(&self) -> Result<String, Self::Error> {
+        Ok(format!(
+            "{}.{}",
+            self.domain.as_ref().ok_or(TldConvertError::NoDomain)?,
+            self.suffix.as_ref().ok_or(TldConvertError::NoSuffix)?
+        ))
+    }
+}
+
+#[async_trait]
+pub trait DomainInfoClient: Send + Sync {
+
+    async fn get_info(&self, root: &str) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn rate_limited(&self) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::collectors::phishtank::get_latest_data;
     use crate::collectors::rdap::RDAPClient;
-    use crate::collectors::{ToDetectedDomain, phishstorm, phishtank};
-
-    use crate::tests::{DB_STATE, TLD_EXTRACTOR, init};
+    use crate::collectors::{phishstorm, phishtank, DomainInfoClient, ToDetectedDomain};
+    use crate::tests::{get_db_state, init};
     use crate::{get_gsb_client, get_reqwest_middleware_client};
     use icann_rdap_common::prelude::RdapResponse;
     use reqwest::Client;
     use reqwest_middleware::ClientBuilder;
 
-    use url::Url;
-
     #[tokio::test]
     #[ignore]
     /// Currently broken since phishtank doesn't offer registration and doesn't work without an api key
     async fn get_phishtank_data() {
-        init(false).await;
+        init();
 
         get_latest_data(
             &ClientBuilder::new(Client::new()).build(),
@@ -75,9 +112,9 @@ mod tests {
     }
 
     #[tokio::test]
-    /// Analyze the data locally, must be run after get_phishtank_data so that the file exists if in a purely test environment
+    /// Analyze the data locally, must be run after get_phishtank_data so that the file exists if in a purely test environment.
     async fn analyze_phishtank_data() {
-        init(false).await;
+        init();
 
         if !tokio::fs::try_exists("./phishtank.json.gz").await.unwrap() {
             return;
@@ -93,7 +130,7 @@ mod tests {
     #[tokio::test]
     /// Analyze the data locally, phishstorm.csv must be downloaded
     async fn analyze_phishstorm_data() {
-        init(false).await;
+        init();
 
         if !tokio::fs::try_exists("./phishstorm.csv").await.unwrap() {
             return;
@@ -109,17 +146,12 @@ mod tests {
     #[tokio::test]
     /// Make sure GSB can detect the test urls
     async fn gsb_check() {
-        init(false).await;
+        init();
 
         let client = get_gsb_client(
             get_reqwest_middleware_client(),
             true,
-            DB_STATE
-                .get()
-                .expect("DB State should be non-null")
-                .lock()
-                .await
-                .clone(),
+            get_db_state(false).await,
         )
         .await;
 
@@ -137,30 +169,23 @@ mod tests {
     #[tokio::test]
     /// Check if RDAP can resolve a domain
     async fn rdap_get_domain() {
-        init(false).await;
+        init();
 
         let rdap_client = RDAPClient::new(
             true,
-            DB_STATE
-                .get()
-                .expect("DB State should be non-null")
-                .lock()
-                .await
-                .clone(),
-            TLD_EXTRACTOR.clone(),
+            get_db_state(false).await,
         )
         .await;
 
         // Common for hosting so we want to make sure it resolves
+        let domain = "vercel.app";
         let res = rdap_client
-            .get_rdap_data(
-                Url::parse("https://vercel.app").expect("Should be able to parse vercel.app url"),
-            )
+            .get_info(domain)
             .await
             .expect("Should be able to get RDAP info for vercel");
 
         assert!(
-            matches!(res, RdapResponse::Domain(_)),
+            matches!(res, crate::database::DomainInfo::RDAPInfo(RdapResponse::Domain(_))),
             "Did not get domain in response"
         );
     }

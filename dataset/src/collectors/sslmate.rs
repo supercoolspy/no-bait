@@ -3,7 +3,7 @@ use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
-use tldextract::TldExtractor;
+use tldextract::{TldExtractor, TldOption, TldResult};
 use tracing::{error, instrument};
 
 #[derive(Debug, Error)]
@@ -62,7 +62,6 @@ pub struct SslMateClient {
     client: Arc<ClientWithMiddleware>,
     cache: Cache<SslMateResponse>,
     api_key: String,
-    tld_extractor: Arc<TldExtractor>,
 }
 
 impl SslMateClient {
@@ -71,12 +70,10 @@ impl SslMateClient {
         api_key: String,
         memory: bool,
         db_state: Arc<DBState>,
-        tld_extractor: Arc<TldExtractor>,
     ) -> Self {
         Self {
             api_key,
             client,
-            tld_extractor,
             cache: Cache::new(memory, db_state, "ssl_mate".to_string())
                 .await
                 .expect("Should be able to create cache"),
@@ -85,18 +82,16 @@ impl SslMateClient {
 
     /// Gets certs for a specified domain
     #[instrument(skip(self), err)]
-    pub async fn get_certs(&self, domain: &str) -> Result<SslMateResponse, SslMateError> {
-        let cache_value = self
-            .cache
-            .get_from_cache(domain.to_string())
-            .await
-            .unwrap_or_default();
+    pub async fn get_certs(
+        &self,
+        domain: &str,
+        extractor_info: TldResult,
+    ) -> Result<SslMateResponse, SslMateError> {
+        let cache_value = self.cache.get_from_cache(domain).await.unwrap_or_default();
 
         if let Some(value) = cache_value {
             return Ok(value);
         }
-
-        let extractor_info = self.tld_extractor.extract(domain)?;
 
         // Only include subdomains if url is on root of domain
         let include_subdomains = extractor_info.subdomain.is_none();
@@ -139,13 +134,14 @@ mod tests {
     use super::*;
     use crate::database::Cache;
     use crate::database::tests::get_test_db_state;
-    use crate::tests::TLD_EXTRACTOR;
     use crate::{get_reqwest_middleware_client, get_ssl_mate_client};
+    use tldextract::{TldOption, TldResult};
 
     #[tokio::test]
     /// Test whether the ssl_mate cache works
     async fn test_sslmate_cache() {
-        let db_state = get_test_db_state().await;
+        let test_db_state = get_test_db_state().await;
+        let db_state = test_db_state.db_state.clone();
         let client = get_reqwest_middleware_client();
 
         let test_cache: Cache<SslMateResponse> =
@@ -154,7 +150,7 @@ mod tests {
                 .expect("Should be able to create test cache");
 
         let mut ssl_client =
-            get_ssl_mate_client(client, TLD_EXTRACTOR.clone(), true, db_state).await;
+            get_ssl_mate_client(client, true, db_state.clone()).await;
 
         ssl_client.cache = test_cache;
 
@@ -182,7 +178,14 @@ mod tests {
             .await
             .expect("Should be able to add to cache");
 
-        let lookup_result = ssl_client.get_certs(test_domain).await;
+        // Create a mock TldResult for the test
+        let mock_tld_result = TldResult {
+            domain: Some("example".to_string()),
+            subdomain: None,
+            suffix: Some("com".to_string()),
+        };
+
+        let lookup_result = ssl_client.get_certs(test_domain, mock_tld_result).await;
 
         assert!(lookup_result.is_ok(), "Lookup should succeed");
         let certs = lookup_result.unwrap();

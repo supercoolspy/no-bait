@@ -1,4 +1,5 @@
-use crate::database::{Cache, DBState, DatabaseError};
+use crate::collectors::DomainInfoClient;
+use crate::database::{Cache, DBState, DatabaseError, DomainInfo};
 use icann_rdap_client::http::{ClientConfig, create_client};
 use icann_rdap_client::iana::MemoryBootstrapStore;
 use icann_rdap_client::rdap::{QueryType, rdap_bootstrapped_request, rdap_url_request};
@@ -9,6 +10,7 @@ use thiserror::Error;
 use tldextract::TldExtractor;
 use tracing::{debug, instrument, trace};
 use url::Url;
+use async_trait::async_trait;
 
 #[derive(Error, Debug)]
 pub enum RDAPError {
@@ -28,7 +30,7 @@ pub enum RDAPError {
     TLDExtract(#[from] tldextract::TldExtractError),
 
     #[error("No Domain Parsable {0}")]
-    NoDomain(Url),
+    NoDomain(String),
 
     #[error("No Root Domain Parsable {0}")]
     NoRoot(Url),
@@ -44,15 +46,10 @@ pub struct RDAPClient {
     rdap_client: icann_rdap_client::http::Client,
     store: MemoryBootstrapStore,
     cache: Cache<RdapResponse>,
-    tld_extractor: Arc<TldExtractor>,
 }
 
 impl RDAPClient {
-    pub async fn new(
-        memory: bool,
-        db_state: Arc<DBState>,
-        tld_extractor: Arc<TldExtractor>,
-    ) -> Self {
+    pub async fn new(memory: bool, db_state: Arc<DBState>) -> Self {
         let config = ClientConfig::default();
 
         let client = create_client(&config).expect("Should be able to create client");
@@ -65,37 +62,24 @@ impl RDAPClient {
             cache: Cache::new(memory, db_state, "rdap".to_string())
                 .await
                 .expect("Should be able to create cache"),
-            tld_extractor,
         }
     }
+}
 
-    /// Per most registry's usage guidlines, automated access is not allowed, so this shouldn't be used without permission
+#[async_trait]
+impl DomainInfoClient for RDAPClient {
+
+    /// Gets RDAP info for a domain
     #[instrument(skip(self), err)]
-    pub(crate) async fn get_rdap_data(&self, url: Url) -> Result<RdapResponse, RDAPError> {
-        let domain = url.domain().ok_or(RDAPError::NoDomain(url.clone()))?;
-
-        let extractor_info = self.tld_extractor.extract(domain)?;
-        let root = &format!(
-            "{}.{}",
-            extractor_info
-                .domain
-                .ok_or(RDAPError::NoRoot(url.clone()))?,
-            extractor_info
-                .suffix
-                .ok_or(RDAPError::NoSuffix(url.clone()))?
-        );
-
+    async fn get_info(&self, root: &str) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>> {
         let query = QueryType::from_str(root)?;
 
         trace!("Checking if response in cache");
-        let cache_value = (&self.cache)
-            .get_from_cache(url.to_string())
-            .await
-            .unwrap_or_default();
+        let cache_value = (&self.cache).get_from_cache(root).await.unwrap_or_default();
 
-        if cache_value.is_some() {
+        if let Some(cache_value) = cache_value {
             trace!("RDAP Response in cache");
-            return Ok(cache_value.expect("Cache value should exist"));
+            return Ok(DomainInfo::RDAPInfo(cache_value));
         }
         trace!("RDAP Response not in cache");
 
@@ -127,11 +111,11 @@ impl RDAPClient {
                 RdapResponse::Domain(domain)
             };
 
-            (&self.cache).add_to_cache(url.to_string(), &data).await?;
+            (&self.cache).add_to_cache(root.to_string(), &data).await?;
 
-            Ok(data)
+            Ok(DomainInfo::RDAPInfo(data))
         } else {
-            Err(RDAPError::NoDomain(url))
+            Err(RDAPError::NoDomain(root.to_string()).into())
         }
     }
 }
@@ -141,14 +125,14 @@ mod tests {
     use super::*;
     use crate::database::Cache;
     use crate::database::tests::get_test_db_state;
-    use crate::tests::TLD_EXTRACTOR;
     use icann_rdap_common::prelude::{Domain, RdapResponse};
     use url::Url;
 
     #[tokio::test]
     /// Test whether the rdap cache works
     async fn test_rdap_cache() {
-        let db_state = get_test_db_state().await;
+        let test_db_state = get_test_db_state().await;
+        let db_state = test_db_state.db_state.clone();
 
         let test_cache: Cache<RdapResponse> = Cache::new(
             true, // use memory cache
@@ -158,11 +142,11 @@ mod tests {
         .await
         .expect("Should be able to create test cache");
 
-        let mut client = RDAPClient::new(true, db_state.clone(), TLD_EXTRACTOR.clone()).await;
+        let mut client = RDAPClient::new(true, db_state.clone()).await;
 
         client.cache = test_cache;
 
-        let test_url = Url::parse("https://example.dev").unwrap();
+        let test_domain = "example.dev";
 
         let mock_domain = Domain::builder()
             .ldh_name("example.dev")
@@ -182,16 +166,16 @@ mod tests {
 
         client
             .cache
-            .add_to_cache(test_url.to_string(), &test_rdap_response)
+            .add_to_cache(test_domain.to_string(), &test_rdap_response)
             .await
             .expect("Should be able to add to cache");
 
-        let lookup_result = client.get_rdap_data(test_url.clone()).await;
+        let lookup_result = client.get_info(test_domain).await;
 
         assert!(lookup_result.is_ok(), "Lookup should succeed");
 
-        match lookup_result.unwrap() {
-            RdapResponse::Domain(domain) => {
+        if let DomainInfo::RDAPInfo(rdap_response) = lookup_result.unwrap() {
+            if let RdapResponse::Domain(domain) = rdap_response {
                 assert_eq!(
                     domain.ldh_name(),
                     Some("example.dev"),
@@ -220,8 +204,11 @@ mod tests {
                 } else {
                     panic!("Domain should have a self link");
                 }
+            } else {
+                panic!("Should have retrieved a domain response");
             }
-            _ => assert!(false, "Should have retrieved a domain response"),
+        } else {
+            panic!("Expected RDAP info but got something else");
         }
     }
 }

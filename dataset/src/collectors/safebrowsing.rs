@@ -1,11 +1,12 @@
 use std::sync::{Arc, LazyLock};
 
-use crate::collectors::{CollectorSpecificInfo, DomainCollectorInfo};
+use crate::collectors::{CollectorSpecificInfo, DomainCollectorInfo, DomainInfoClient};
 use crate::database::{Cache, DBState, DatabaseError};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, instrument};
+use url::Url;
 
 pub(crate) struct SafebrowsingClient {
     api_key: String,
@@ -110,7 +111,7 @@ impl SafebrowsingClient {
     ) -> Result<DomainCollectorInfo, SafebrowsingError> {
         let cache_value = self
             .cache
-            .get_from_cache(url.clone())
+            .get_from_cache(url.as_str())
             .await
             .unwrap_or_default();
 
