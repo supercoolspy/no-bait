@@ -3,11 +3,10 @@ use crate::database::{Cache, DBState, DatabaseError, DomainInfo};
 use async_trait::async_trait;
 use std::sync::Arc;
 use thiserror::Error;
-use tldextract::TldExtractor;
 use tracing::{debug, instrument, trace};
 use url::Url;
-use whois_that::whois::Whois;
 use whois_that::WhoisError;
+use whois_that::whois::Whois;
 
 #[derive(Error, Debug)]
 pub(crate) enum WhoIsError {
@@ -45,10 +44,7 @@ pub struct WhoisClient {
 }
 
 impl WhoisClient {
-    pub async fn new(
-        memory: bool,
-        db_state: Arc<DBState>,
-    ) -> Self {
+    pub async fn new(memory: bool, db_state: Arc<DBState>) -> Self {
         let whois = Whois::builder()
             .build()
             .expect("Should be able to load default");
@@ -65,20 +61,21 @@ impl WhoisClient {
 
 #[async_trait]
 impl DomainInfoClient for WhoisClient {
-
     #[instrument(skip(self), err)]
-    async fn get_info(&self, root: &str) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>> {
+    async fn get_info(
+        &self,
+        root: &str,
+    ) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>> {
         trace!("Getting whois info");
 
         trace!("Checking if response in cache");
-        let cache_value = (&self.cache)
-            .get_from_cache(root)
-            .await
-            .unwrap_or_default();
+        let cache_value = (&self.cache).get_from_cache(root).await.unwrap_or_default();
 
         if cache_value.is_some() {
             trace!("Whois Response in cache");
-            return Ok(DomainInfo::WhoisInfo(cache_value.expect("Cache value should exist")));
+            return Ok(DomainInfo::WhoisInfo(
+                cache_value.expect("Cache value should exist"),
+            ));
         }
         trace!("Whois Response not in cache");
 
@@ -104,8 +101,8 @@ impl DomainInfoClient for WhoisClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::tests::get_test_db_state;
     use crate::database::Cache;
+    use crate::database::tests::get_test_db_state;
 
     #[tokio::test]
     /// Test whether the whois cache is working correctly
@@ -138,8 +135,7 @@ mod tests {
 
         if let DomainInfo::WhoisInfo(whois_data) = lookup_result.unwrap() {
             assert_eq!(
-                whois_data,
-                test_whois_response,
+                whois_data, test_whois_response,
                 "Retrieved response should match inserted response"
             );
         } else {

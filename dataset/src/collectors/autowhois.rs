@@ -1,14 +1,13 @@
 use crate::collectors::DomainInfoClient;
 use crate::database::{Cache, DBState, DatabaseError, DomainInfo};
+use async_trait::async_trait;
 use reqwest_middleware::ClientWithMiddleware;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{error, instrument};
-use async_trait::async_trait;
 
 #[derive(Debug, Error)]
 pub enum AutoWhoisError {
@@ -55,10 +54,12 @@ impl AutoWhoisClient {
 
 #[async_trait]
 impl DomainInfoClient for AutoWhoisClient {
-
     /// Gets whois info for a specified domain from AutoWhois
     #[instrument(skip(self), err)]
-    async fn get_info(&self, root: &str) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>> {
+    async fn get_info(
+        &self,
+        root: &str,
+    ) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>> {
         let cache_value = self.cache.get_from_cache(root).await.unwrap_or_default();
 
         if let Some(value) = cache_value {
@@ -123,8 +124,8 @@ impl DomainInfoClient for AutoWhoisClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::tests::get_test_db_state;
     use crate::database::Cache;
+    use crate::database::tests::get_test_db_state;
     use crate::get_reqwest_middleware_client;
     use serde_json::json;
 
@@ -140,12 +141,8 @@ mod tests {
                 .await
                 .expect("Should be able to create test cache");
 
-        let mut autowhois_client = AutoWhoisClient::new(
-            client,
-            "test_api_key".to_string(),
-            true,
-            db_state.clone(),
-        ).await;
+        let mut autowhois_client =
+            AutoWhoisClient::new(client, "test_api_key".to_string(), true, db_state.clone()).await;
 
         autowhois_client.cache = test_cache;
 
@@ -169,7 +166,10 @@ mod tests {
         assert!(lookup_result.is_ok(), "Lookup should succeed");
         if let DomainInfo::AutoWhoisInfo(whois_data) = lookup_result.unwrap() {
             assert_eq!(whois_data["domain"], "example.com", "Domain should match");
-            assert_eq!(whois_data["registrar"], "Test Registrar, Inc.", "Registrar should match");
+            assert_eq!(
+                whois_data["registrar"], "Test Registrar, Inc.",
+                "Registrar should match"
+            );
         } else {
             panic!("Expected AutoWhoisInfo but got something else");
         }

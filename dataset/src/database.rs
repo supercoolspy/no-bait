@@ -3,7 +3,7 @@ use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use futures::{FutureExt, StreamExt};
 use icann_rdap_common::prelude::RdapResponse;
 use libsql::params::IntoValue;
-use libsql::{params, Builder, Connection, Row};
+use libsql::{Builder, Connection, Row, params};
 use moka::future::Cache as MemoryCache;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, instrument, trace};
 use url::Url;
 
@@ -664,7 +664,10 @@ pub mod tests {
             // Clean up the test database file
             if std::path::Path::new(&self.db_path).exists() {
                 if let Err(e) = std::fs::remove_file(&self.db_path) {
-                    eprintln!("Warning: Failed to clean up test database {}: {}", self.db_path, e);
+                    eprintln!(
+                        "Warning: Failed to clean up test database {}: {}",
+                        self.db_path, e
+                    );
                 } else {
                     println!("Cleaned up test database: {}", self.db_path);
                 }
@@ -696,10 +699,13 @@ pub mod tests {
 
         let (db_state, receiver) = DBState::new(conn, db_only);
 
-        Ok((TestDBState {
-            db_state: Arc::new(db_state),
-            db_path: db_path.clone()
-        }, receiver))
+        Ok((
+            TestDBState {
+                db_state: Arc::new(db_state),
+                db_path: db_path.clone(),
+            },
+            receiver,
+        ))
     }
 
     pub async fn get_test_db_state() -> TestDBState {
@@ -715,10 +721,13 @@ pub mod tests {
     /// Test the cache using the database only
     async fn test_cache_db() {
         let test_db_state = get_test_db_state().await;
-        let cache: Cache<String> =
-            Cache::new(false, test_db_state.db_state.clone(), "test_db_only_cache".to_string())
-                .await
-                .expect("Should be able to create cache");
+        let cache: Cache<String> = Cache::new(
+            false,
+            test_db_state.db_state.clone(),
+            "test_db_only_cache".to_string(),
+        )
+        .await
+        .expect("Should be able to create cache");
 
         let test_key = "db-test.com".to_string();
         let test_value = "DB test data".to_string();
@@ -748,10 +757,13 @@ pub mod tests {
 
         // Store db only
         {
-            let db_cache: Cache<String> =
-                Cache::new(false, test_db_state.db_state.clone(), "test_fallback_cache".to_string())
-                    .await
-                    .expect("Should be able to create cache");
+            let db_cache: Cache<String> = Cache::new(
+                false,
+                test_db_state.db_state.clone(),
+                "test_fallback_cache".to_string(),
+            )
+            .await
+            .expect("Should be able to create cache");
 
             let test_key = "fallback-test.com".to_string();
             let test_value = "Fallback test data".to_string();

@@ -1,19 +1,16 @@
-use crate::collectors::rdap::RDAPClient;
+use crate::collectors::DomainInfoClient;
 use crate::collectors::safebrowsing::SafebrowsingClient;
 use crate::collectors::sslmate::SslMateClient;
-use crate::collectors::whois::WhoisClient;
 use crate::converter::convert_domains;
 use crate::database::{
     DBState, DatabaseError, get_amount_pending_db, get_pending_domains, remove_pending_domains,
 };
 use std::sync::Arc;
 use std::time::Duration;
-use std::error::Error as StdError;
 use tldextract::TldExtractor;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
-use crate::collectors::DomainInfoClient;
 
 pub(crate) async fn wait_until_finished(db_state: &DBState) -> Result<(), DatabaseError> {
     let pending_memory = db_state.get_pending_count().await;
@@ -218,12 +215,7 @@ mod tests {
         domain_info_processors.push(rdap_client);
 
         let client = get_reqwest_middleware_client();
-        let ssl_mate_client = get_ssl_mate_client(
-            client,
-            true,
-            db_state.clone(),
-        )
-        .await;
+        let ssl_mate_client = get_ssl_mate_client(client, true, db_state.clone()).await;
 
         for domain in &domains {
             let url = domain.url.as_str();

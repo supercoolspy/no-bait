@@ -1,20 +1,17 @@
-use std::fmt::Display;
-use std::sync::Arc;
-use std::error::Error as StdError;
-use crate::collectors::rdap::{RDAPClient, RDAPError};
+use crate::collectors::rdap::RDAPError;
 use crate::collectors::safebrowsing::{SafebrowsingClient, SafebrowsingError};
 use crate::collectors::sslmate::{SslMateClient, SslMateError};
-use crate::collectors::whois::{WhoIsError, WhoisClient};
+use crate::collectors::whois::WhoIsError;
 use crate::collectors::{DomainInfoClient, TldUrl};
 use crate::database::{
-    add_domain, check_exists, update_domain, DBState, DatabaseError, DetectedDomainWithId, Domain,
-    DomainInfo, DomainWithId,
+    DBState, DatabaseError, DetectedDomainWithId, Domain, DomainInfo, DomainWithId, add_domain,
+    check_exists, update_domain,
 };
-use futures::stream::iter;
 use futures::StreamExt;
-use icann_rdap_client::RdapClientError;
+use futures::stream::iter;
 use libsql::Connection;
 use rayon::prelude::*;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tldextract::TldExtractor;
@@ -119,7 +116,7 @@ async fn get_info_for_domains(
             for (index, next) in domain_info_processor.iter().enumerate() {
                 if next.rate_limited() {
                     trace!("Skipping {}, ratelimited", index);
-                    continue
+                    continue;
                 }
 
                 let res = next.get_info(&root).await;
@@ -127,7 +124,7 @@ async fn get_info_for_domains(
                 if let Ok(info) = res {
                     trace!(url=?url, "Got domain info {:?}", info);
                     domain_info = info;
-                    break
+                    break;
                 }
 
                 let err = res.expect_err("Should be error or breaked");
@@ -299,7 +296,8 @@ pub async fn convert_domains(
         add_len + mod_len
     );
 
-    let domains_add = get_info_for_domains(add, domain_info_processor, tld_extractor, gsb_client).await;
+    let domains_add =
+        get_info_for_domains(add, domain_info_processor, tld_extractor, gsb_client).await;
 
     let domains_add = add_certs(ssl_mate_client, tld_extractor, domains_add).await;
 
@@ -354,10 +352,10 @@ pub async fn convert_domains(
 
 #[cfg(test)]
 pub mod test_support {
-    use std::sync::Arc;
-    use crate::collectors::safebrowsing::SafebrowsingClient;
     use crate::collectors::DomainInfoClient;
+    use crate::collectors::safebrowsing::SafebrowsingClient;
     use crate::database::{DetectedDomainWithId, DomainWithId};
+    use std::sync::Arc;
     use tldextract::TldExtractor;
 
     pub(crate) async fn get_info_for_domains(
@@ -369,5 +367,3 @@ pub mod test_support {
         super::get_info_for_domains(domains, domain_info_processor, tld_extractor, gsb_client).await
     }
 }
-
-

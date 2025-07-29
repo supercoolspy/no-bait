@@ -1,12 +1,11 @@
 use std::sync::{Arc, LazyLock};
 
-use crate::collectors::{CollectorSpecificInfo, DomainCollectorInfo, DomainInfoClient};
+use crate::collectors::{CollectorSpecificInfo, DomainCollectorInfo};
 use crate::database::{Cache, DBState, DatabaseError};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, instrument};
-use url::Url;
 
 pub(crate) struct SafebrowsingClient {
     api_key: String,

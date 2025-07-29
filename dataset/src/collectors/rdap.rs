@@ -1,5 +1,6 @@
 use crate::collectors::DomainInfoClient;
 use crate::database::{Cache, DBState, DatabaseError, DomainInfo};
+use async_trait::async_trait;
 use icann_rdap_client::http::{ClientConfig, create_client};
 use icann_rdap_client::iana::MemoryBootstrapStore;
 use icann_rdap_client::rdap::{QueryType, rdap_bootstrapped_request, rdap_url_request};
@@ -7,10 +8,8 @@ use icann_rdap_common::prelude::{Link, ObjectCommonFields, RdapResponse};
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
-use tldextract::TldExtractor;
 use tracing::{debug, instrument, trace};
 use url::Url;
-use async_trait::async_trait;
 
 #[derive(Error, Debug)]
 pub enum RDAPError {
@@ -68,10 +67,12 @@ impl RDAPClient {
 
 #[async_trait]
 impl DomainInfoClient for RDAPClient {
-
     /// Gets RDAP info for a domain
     #[instrument(skip(self), err)]
-    async fn get_info(&self, root: &str) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>> {
+    async fn get_info(
+        &self,
+        root: &str,
+    ) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>> {
         let query = QueryType::from_str(root)?;
 
         trace!("Checking if response in cache");

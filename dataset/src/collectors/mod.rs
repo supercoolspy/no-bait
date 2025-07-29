@@ -78,8 +78,10 @@ impl TldUrl for TldResult {
 
 #[async_trait]
 pub trait DomainInfoClient: Send + Sync {
-
-    async fn get_info(&self, root: &str) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>>;
+    async fn get_info(
+        &self,
+        root: &str,
+    ) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>>;
 
     fn rate_limited(&self) -> bool {
         false
@@ -90,7 +92,7 @@ pub trait DomainInfoClient: Send + Sync {
 mod tests {
     use crate::collectors::phishtank::get_latest_data;
     use crate::collectors::rdap::RDAPClient;
-    use crate::collectors::{phishstorm, phishtank, DomainInfoClient, ToDetectedDomain};
+    use crate::collectors::{DomainInfoClient, ToDetectedDomain, phishstorm, phishtank};
     use crate::tests::{get_db_state, init};
     use crate::{get_gsb_client, get_reqwest_middleware_client};
     use icann_rdap_common::prelude::RdapResponse;
@@ -171,11 +173,7 @@ mod tests {
     async fn rdap_get_domain() {
         init();
 
-        let rdap_client = RDAPClient::new(
-            true,
-            get_db_state(false).await,
-        )
-        .await;
+        let rdap_client = RDAPClient::new(true, get_db_state(false).await).await;
 
         // Common for hosting so we want to make sure it resolves
         let domain = "vercel.app";
@@ -185,7 +183,10 @@ mod tests {
             .expect("Should be able to get RDAP info for vercel");
 
         assert!(
-            matches!(res, crate::database::DomainInfo::RDAPInfo(RdapResponse::Domain(_))),
+            matches!(
+                res,
+                crate::database::DomainInfo::RDAPInfo(RdapResponse::Domain(_))
+            ),
             "Did not get domain in response"
         );
     }

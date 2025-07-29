@@ -3,7 +3,7 @@ use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
-use tldextract::{TldExtractor, TldOption, TldResult};
+use tldextract::TldResult;
 use tracing::{error, instrument};
 
 #[derive(Debug, Error)]
@@ -135,7 +135,7 @@ mod tests {
     use crate::database::Cache;
     use crate::database::tests::get_test_db_state;
     use crate::{get_reqwest_middleware_client, get_ssl_mate_client};
-    use tldextract::{TldOption, TldResult};
+    use tldextract::TldResult;
 
     #[tokio::test]
     /// Test whether the ssl_mate cache works
@@ -149,8 +149,7 @@ mod tests {
                 .await
                 .expect("Should be able to create test cache");
 
-        let mut ssl_client =
-            get_ssl_mate_client(client, true, db_state.clone()).await;
+        let mut ssl_client = get_ssl_mate_client(client, true, db_state.clone()).await;
 
         ssl_client.cache = test_cache;
 
