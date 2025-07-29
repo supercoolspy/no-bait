@@ -662,7 +662,7 @@ pub mod tests {
     impl Drop for TestDBState {
         fn drop(&mut self) {
             // Clean up the test database file
-            if std::path::Path::new(&self.db_path).exists() {
+            if Path::new(&self.db_path).exists() {
                 if let Err(e) = std::fs::remove_file(&self.db_path) {
                     eprintln!(
                         "Warning: Failed to clean up test database {}: {}",

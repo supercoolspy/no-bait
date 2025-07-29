@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, instrument, trace};
-use url::Url;
 use whois_that::WhoisError;
 use whois_that::whois::Whois;
 
@@ -18,15 +17,6 @@ pub(crate) enum WhoIsError {
 
     #[error("TLD Extract error: {0}")]
     TLDExtract(#[from] tldextract::TldExtractError),
-
-    #[error("No Domain Parsable {0}")]
-    NoDomain(Url),
-
-    #[error("No Root Domain Parsable {0}")]
-    NoRoot(Url),
-
-    #[error("No Suffix Parsable {0}")]
-    NoSuffix(Url),
 
     #[error("Whois lookup error {0}")]
     WhoIsLookupError(#[from] WhoisError),

@@ -9,7 +9,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, instrument, trace};
-use url::Url;
 
 #[derive(Error, Debug)]
 pub enum RDAPError {
@@ -30,12 +29,6 @@ pub enum RDAPError {
 
     #[error("No Domain Parsable {0}")]
     NoDomain(String),
-
-    #[error("No Root Domain Parsable {0}")]
-    NoRoot(Url),
-
-    #[error("No Suffix Parsable {0}")]
-    NoSuffix(Url),
 
     #[error("No href on link")]
     NoHREF,
