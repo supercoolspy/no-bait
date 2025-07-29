@@ -59,7 +59,7 @@ impl DomainInfoClient for WhoisClient {
         trace!("Getting whois info");
 
         trace!("Checking if response in cache");
-        let cache_value = (&self.cache).get_from_cache(root).await.unwrap_or_default();
+        let cache_value = self.cache.get_from_cache(root).await.unwrap_or_default();
 
         if cache_value.is_some() {
             trace!("Whois Response in cache");
@@ -80,7 +80,7 @@ impl DomainInfoClient for WhoisClient {
 
         let whois_data = self.whois.lookup(info).await?;
 
-        (&self.cache)
+        self.cache
             .add_to_cache(root.to_string(), &whois_data)
             .await?;
 

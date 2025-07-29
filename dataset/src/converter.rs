@@ -29,7 +29,7 @@ pub enum ConverterError {
     Rdap(#[from] RDAPError),
 
     #[error("Google Safebrowsing Error: {0}")]
-    GSB(#[from] SafebrowsingError),
+    Gsb(#[from] SafebrowsingError),
 
     #[error("Database Error: {0}")]
     Database(#[from] DatabaseError),

@@ -109,7 +109,7 @@ async fn process_domains(
         tld_extractor,
         domain_info_processor,
         ssl_mate_client,
-        &gsb_client,
+        gsb_client,
         pending,
     )
     .await;
@@ -120,7 +120,6 @@ async fn process_domains(
             "Failed to delete domains from pending table: {}",
             remove_res.err().unwrap()
         );
-        return;
     }
 }
 

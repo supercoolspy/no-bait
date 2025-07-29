@@ -177,7 +177,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
                                 }
 
                                 let res = Self::add_to_cache_db(
-                                    &db_state.get_connection(),
+                                    db_state.get_connection(),
                                     &name,
                                     &k,
                                     &v,
@@ -218,7 +218,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync> Cache<T> {
 
             cache.insert(key, value.clone()).await;
         } else {
-            Self::add_to_cache_db(&self.db_state.get_connection(), &self.name, &key, value).await?;
+            Self::add_to_cache_db(self.db_state.get_connection(), &self.name, &key, value).await?;
         }
 
         Ok(())

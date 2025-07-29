@@ -15,13 +15,13 @@ pub(crate) struct WhoIsCommand {
 #[derive(Debug, Error)]
 pub enum WhoisCommandError {
     #[error("Whois Error: {0}")]
-    WhoisError(#[from] Box<dyn Error + Send + Sync>),
+    Whois(#[from] Box<dyn Error + Send + Sync>),
 
     #[error("Tld Extract Error: {0}")]
-    TldExtractError(#[from] TldExtractError),
+    TldExtract(#[from] TldExtractError),
 
     #[error("Tld Convert Error: {0}")]
-    TldConvertError(#[from] TldConvertError),
+    TldConvert(#[from] TldConvertError),
 }
 
 #[instrument(skip(whois))]

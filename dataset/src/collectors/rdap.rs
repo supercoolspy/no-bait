@@ -69,7 +69,7 @@ impl DomainInfoClient for RDAPClient {
         let query = QueryType::from_str(root)?;
 
         trace!("Checking if response in cache");
-        let cache_value = (&self.cache).get_from_cache(root).await.unwrap_or_default();
+        let cache_value = self.cache.get_from_cache(root).await.unwrap_or_default();
 
         if let Some(cache_value) = cache_value {
             trace!("RDAP Response in cache");
@@ -105,7 +105,7 @@ impl DomainInfoClient for RDAPClient {
                 RdapResponse::Domain(domain)
             };
 
-            (&self.cache).add_to_cache(root.to_string(), &data).await?;
+            self.cache.add_to_cache(root.to_string(), &data).await?;
 
             Ok(DomainInfo::RDAPInfo(data))
         } else {
@@ -191,7 +191,7 @@ mod tests {
 
                 if let Some(link) = links.iter().find(|l| l.is_relation("self")) {
                     assert_eq!(
-                        link.href.as_ref().map(|u| u.as_str()),
+                        link.href.as_deref(),
                         Some("https://rdap.example.com/domain/example.dev"),
                         "Self link URL should match"
                     );

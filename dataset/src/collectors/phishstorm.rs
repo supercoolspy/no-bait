@@ -91,7 +91,7 @@ fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormEr
         .enumerate()
         .filter_map(|(line, row)| {
             // 18232-18348 contain invalid data, 19582 (19605 in the csv) contains an invalid domain name
-            if (line < 18231 || line > 18349) && line != 19582 {
+            if !(18231..=18349).contains(&line) && line != 19582 {
                 trace!(row_res=?row, "{} is valid line", line);
                 Some(row)
             } else {
