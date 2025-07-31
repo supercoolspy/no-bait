@@ -12,6 +12,8 @@ use std::fmt::Debug;
 use std::mem::discriminant;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
+use futures::executor::block_on;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -144,6 +146,39 @@ pub struct Cache<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static
     name: String,
 }
 
+// Remove all cache entries to database when cache is dropped
+impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Drop for Cache<T> {
+    fn drop(&mut self) {
+        if !self.using_memory_cache() {
+            return;
+        }
+
+        block_on(async move {
+            let cache = self.memory_cache.as_ref().unwrap();
+            let db_state = &self.db_state;
+            let name = &self.name;
+
+            info!("Cleaning up {} cache", name);
+
+            for (key, value) in cache {
+                let res =
+                    Self::add_to_cache_db(db_state.get_connection(), name, &key, &value).await;
+                trace!(name = name, "Attempted to add to db cache");
+
+                if res.is_err() {
+                    error!(
+                        url = key.as_ref(),
+                        "Failed to add evicted entry to database cache: {}",
+                        res.expect_err("Checked if error")
+                    );
+                } else {
+                    trace!(name = name, "Succeeded in adding to cache");
+                }
+            }
+        });
+    }
+}
+
 impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
     pub(crate) async fn new(
         memory: bool,
@@ -193,6 +228,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
                             }
                             .boxed()
                         })
+                        .time_to_idle(Duration::from_secs(600)) // 10 Minutes
                         .build(),
                 )
             } else {
