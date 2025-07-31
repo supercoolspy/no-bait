@@ -10,7 +10,7 @@ use crate::collectors::rdap::RDAPClient;
 use crate::collectors::sslmate::SslMateClient;
 use crate::collectors::whois::WhoisClient;
 use crate::database::{DBState, init_db};
-use crate::processor::create_processor;
+use crate::processor::{create_processor, wait_until_finished};
 use clap::{Parser, Subcommand, arg};
 use collectors::safebrowsing::SafebrowsingClient;
 use commands::{
@@ -56,6 +56,8 @@ enum Commands {
     PhishTank(PhishTankCommand),
     #[command(name = "phishstorm")]
     PhishStorm(PhishStormCommand),
+    #[command(name="auto")]
+    Auto
 }
 
 async fn get_gsb_client(
@@ -213,6 +215,9 @@ async fn main() {
             phishstorm_command(&client, &db_state, command, args.no_analysis)
                 .await
                 .unwrap()
+        }
+        Commands::Auto => {
+            wait_until_finished(&db_state).await.unwrap();
         }
     }
 }
