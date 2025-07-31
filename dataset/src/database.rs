@@ -41,6 +41,7 @@ pub struct DBState {
     conn: Connection,
     db_only: bool,
     /// Pending domains only from this run, None if db_only is true
+    #[debug(skip)]
     pending_domains: Option<Arc<Mutex<Vec<DetectedDomainWithId>>>>,
     /// Channel sender for the amount of pending domains added to the db/in-memory map
     channel_sender: Sender<usize>,
