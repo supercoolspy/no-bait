@@ -392,10 +392,11 @@ pub(crate) async fn check_exists(
 #[instrument(skip(conn))]
 async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     conn.execute(
-        "INSERT INTO domains (url, whois_info, collector_info) VALUES ($1, $2, $3)",
+        "INSERT INTO domains (url, whois_info, cert_info, collector_info) VALUES ($1, $2, $3)",
         [
             domain.url.as_str().to_string(),
             serde_json::to_string(&domain.whois_info)?,
+            serde_json::to_string(&domain.cert_info)?,
             serde_json::to_string(&vec![domain.collectors])?,
         ],
     )
@@ -443,7 +444,7 @@ pub(crate) async fn update_domain(
         trace!("Row exists");
         let row = row.unwrap();
 
-        let collectors_str = row.get::<String>(2)?;
+        let collectors_str = row.get::<String>(3)?;
         trace!("Collectors value in database: {}", collectors_str);
 
         let collectors: CollectorColumn = serde_json::from_str(&collectors_str)?;
