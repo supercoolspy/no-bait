@@ -47,7 +47,6 @@ pub(super) fn create_processor(
 
                 let amount = amount_op.unwrap();
 
-                error!("Processing {} domains", amount);
                 process_domains(
                     &db_state,
                     &tld_extractor,
@@ -61,7 +60,6 @@ pub(super) fn create_processor(
                 // Timeout hit, check from db
                 let amount = 1000;
 
-                error!("Processing {} domains", amount);
                 process_domains(
                     &db_state,
                     &tld_extractor,

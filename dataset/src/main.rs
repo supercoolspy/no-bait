@@ -91,10 +91,10 @@ async fn get_auto_whois_client(
     db_state: Arc<DBState>,
 ) -> AutoWhoisClient {
     let ssl_mate_api_key =
-        std::env::var("SSLMATE_API_KEY").expect("Should be able to get ssl mate api key");
+        std::env::var("AUTOWHOIS_API_KEY").expect("Should be able to get ssl mate api key");
 
     let client = AutoWhoisClient::new(client, ssl_mate_api_key, memory, db_state).await;
-    debug!("Created SslMate client");
+    debug!("Created AutoWhois client");
 
     client
 }

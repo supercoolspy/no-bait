@@ -176,13 +176,9 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
                                     return;
                                 }
 
-                                let res = Self::add_to_cache_db(
-                                    db_state.get_connection(),
-                                    &name,
-                                    &k,
-                                    &v,
-                                )
-                                .await;
+                                let res =
+                                    Self::add_to_cache_db(db_state.get_connection(), &name, &k, &v)
+                                        .await;
                                 trace!(name = name.as_ref(), "Attempted to add to db cache");
 
                                 if res.is_err() {
