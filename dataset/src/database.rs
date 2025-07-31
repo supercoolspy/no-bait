@@ -392,7 +392,7 @@ pub(crate) async fn check_exists(
 #[instrument(skip(conn))]
 async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), DatabaseError> {
     conn.execute(
-        "INSERT INTO domains (url, whois_info, cert_info, collector_info) VALUES ($1, $2, $3)",
+        "INSERT INTO domains (url, whois_info, cert_info, collector_info) VALUES ($1, $2, $3, $4)",
         [
             domain.url.as_str().to_string(),
             serde_json::to_string(&domain.whois_info)?,
