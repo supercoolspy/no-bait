@@ -36,16 +36,25 @@ pub struct DetectedDomainWithId {
 }
 
 /// Use when cli arguments could change how data is stored
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DBState {
     conn: Connection,
     db_only: bool,
     /// Pending domains only from this run, None if db_only is true
-    #[debug(skip)]
     pending_domains: Option<Arc<Mutex<Vec<DetectedDomainWithId>>>>,
     /// Channel sender for the amount of pending domains added to the db/in-memory map
     channel_sender: Sender<usize>,
 }
+
+impl Debug for DBState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DBState")
+            .field("db_only", &self.db_only)
+            .field("conn", &self.conn)
+            .finish()
+    }
+}
+
 
 impl DBState {
     /// Create a new Database State object.
