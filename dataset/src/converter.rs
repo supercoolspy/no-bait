@@ -148,14 +148,19 @@ async fn get_info_for_domains(
                 }
 
                 if let Ok(mut domain_with_id) = domain_res {
-                    let gsb_detection = gsb_client
+                    let gsb_detection_res = gsb_client
                         .get_url_batch_threat(domain_with_id.domain.url.to_string())
-                        .await
-                        .map_err(|e| {
-                            (domain_with_id.domain.url.clone(), ConverterError::from(e))
-                        })?;
+                        .await;
 
-                    domain_with_id.domain.collectors.push(gsb_detection);
+                    if let Err(err) = gsb_detection_res {
+                        if matches!(err, SafebrowsingError::RateLimited) {
+                            return Ok(domain_with_id)
+                        }
+
+                        return Err((domain_with_id.domain.url.clone(), ConverterError::from(err)))
+                    }
+
+                    domain_with_id.domain.collectors.push(gsb_detection_res.unwrap());
 
                     Ok(domain_with_id)
                 } else {
