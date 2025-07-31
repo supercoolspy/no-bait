@@ -45,7 +45,11 @@ pub(super) fn create_processor(
                     continue;
                 }
 
-                let amount = amount_op.unwrap();
+                let mut amount = amount_op.unwrap();
+
+                if amount > 500 {
+                    amount = 500;
+                }
 
                 process_domains(
                     &db_state,
@@ -58,7 +62,7 @@ pub(super) fn create_processor(
                 .await
             } else {
                 // Timeout hit, check from db
-                let amount = 1000;
+                let amount = 500;
 
                 process_domains(
                     &db_state,
