@@ -1,5 +1,6 @@
 use crate::collectors::sslmate::SslMateResponse;
 use crate::collectors::{DetectedDomain, DomainCollectorInfo};
+use futures::executor::block_on;
 use futures::{FutureExt, StreamExt};
 use icann_rdap_common::prelude::RdapResponse;
 use libsql::params::IntoValue;
@@ -13,7 +14,6 @@ use std::mem::discriminant;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use futures::executor::block_on;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -54,7 +54,6 @@ impl Debug for DBState {
             .finish()
     }
 }
-
 
 impl DBState {
     /// Create a new Database State object.

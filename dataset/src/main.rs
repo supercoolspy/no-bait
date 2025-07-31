@@ -56,8 +56,8 @@ enum Commands {
     PhishTank(PhishTankCommand),
     #[command(name = "phishstorm")]
     PhishStorm(PhishStormCommand),
-    #[command(name="auto")]
-    Auto
+    #[command(name = "auto")]
+    Auto,
 }
 
 async fn get_gsb_client(

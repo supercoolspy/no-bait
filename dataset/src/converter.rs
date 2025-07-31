@@ -143,6 +143,10 @@ async fn get_info_for_domains(
             });
 
             if let Some(gsb_client) = gsb_client {
+                if gsb_client.rate_limited() {
+                    return domain_res;
+                }
+
                 if let Ok(mut domain_with_id) = domain_res {
                     let gsb_detection = gsb_client
                         .get_url_batch_threat(domain_with_id.domain.url.to_string())

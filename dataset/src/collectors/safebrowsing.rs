@@ -1,9 +1,10 @@
-use std::sync::{Arc, LazyLock};
-
 use crate::collectors::{CollectorSpecificInfo, DomainCollectorInfo};
 use crate::database::{Cache, DBState, DatabaseError};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, instrument};
 
@@ -11,6 +12,7 @@ pub(crate) struct SafebrowsingClient {
     api_key: String,
     client: Arc<ClientWithMiddleware>,
     cache: Cache<DomainCollectorInfo>,
+    rate_limited: AtomicU64,
 }
 
 #[derive(Error, Debug)]
@@ -23,6 +25,9 @@ pub enum SafebrowsingError {
 
     #[error("Database (Cache) Error: {0}")]
     DatabaseError(#[from] DatabaseError),
+
+    #[error("Rate limited")]
+    RateLimited,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -99,6 +104,24 @@ impl SafebrowsingClient {
             cache: Cache::new(memory, db_state, "google_safe_browsing".to_string())
                 .await
                 .expect("Should be able to create cache"),
+            rate_limited: AtomicU64::new(0),
+        }
+    }
+
+    pub(crate) fn rate_limited(&self) -> bool {
+        let last_limited = self.rate_limited.load(Ordering::Relaxed);
+
+        if last_limited == 0 {
+            false
+        } else {
+            let now = SystemTime::now();
+
+            let unix_time_sec = now
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_secs();
+
+            last_limited + 60 >= unix_time_sec
         }
     }
 
@@ -131,10 +154,30 @@ impl SafebrowsingClient {
             .json(&req_data)
             .send()
             .await?
-            .error_for_status()?;
+            .error_for_status();
+
+        if let Err(reqwest_err) = res {
+            if let Some(status) = reqwest_err.status() {
+                if status.as_u16() == 429 {
+                    let now = SystemTime::now();
+
+                    let unix_time_sec = now
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_secs();
+
+                    self.rate_limited.store(unix_time_sec, Ordering::Relaxed);
+
+                    return Err(SafebrowsingError::RateLimited);
+                }
+            }
+
+            return Err(reqwest_err.into());
+        }
+
         debug!("Sent request to safe browsing api without error");
 
-        let data_res: Result<SafebrowsingResponse, reqwest::Error> = res.json().await;
+        let data_res: Result<SafebrowsingResponse, reqwest::Error> = res?.json().await;
         if data_res.is_err() {
             // No threats
             debug!("No threats were found");
