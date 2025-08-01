@@ -12,7 +12,6 @@ use futures::stream::iter;
 use futures::{Stream, StreamExt};
 use libsql::Connection;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tldextract::TldExtractor;
 use tracing::{debug, error, instrument, trace, warn};
@@ -189,9 +188,7 @@ pub async fn add_certs(
     tld_extractor: &TldExtractor,
     mut domain_with_id: DomainWithId,
 ) -> DomainWithId {
-    let rate_limited = &AtomicBool::new(false);
-
-    if domain_with_id.domain.cert_info.is_some() || rate_limited.load(Ordering::Acquire) {
+    if domain_with_id.domain.cert_info.is_some() || ssl_mate_client.rate_limited() {
         return domain_with_id;
     }
 
@@ -213,10 +210,7 @@ pub async fn add_certs(
         } else {
             let err = res.expect_err("Checked if error");
 
-            if matches!(err, SslMateError::RateLimited) {
-                // Stop requesting certs if we get ratelimited
-                rate_limited.store(true, Ordering::Release)
-            } else {
+            if !matches!(err, SslMateError::RateLimited) {
                 error!(url=?domain_with_id.domain.url, "Failed to get domain info for domain: {}", err);
             }
         }
