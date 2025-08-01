@@ -91,11 +91,8 @@ impl DomainInfoClient for WhoisClient {
         &self,
         err: &(dyn std::error::Error + Send + Sync + 'static),
     ) -> ErrorImportance {
-        if let Some(err) = err.downcast_ref::<WhoIsError>() {
-            match err {
-                WhoIsError::NoWhois => return ErrorImportance::Ignore,
-                _ => {}
-            }
+        if let Some(WhoIsError::NoWhois) = err.downcast_ref::<WhoIsError>() {
+            return ErrorImportance::Ignore;
         }
 
         ErrorImportance::default()

@@ -10,7 +10,7 @@ use icann_rdap_common::prelude::{Link, ObjectCommonFields, RdapResponse};
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, error, instrument, trace};
 
 #[derive(Error, Debug)]
 pub enum RDAPError {
@@ -119,16 +119,10 @@ impl DomainInfoClient for RDAPClient {
         &self,
         err: &(dyn std::error::Error + Send + Sync + 'static),
     ) -> ErrorImportance {
-        if let Some(err) = err.downcast_ref::<RDAPError>() {
-            if let RDAPError::RDAPClient(err) = err {
-                match err {
-                    RdapClientError::BootstrapError(err) => match err {
-                        BootstrapRegistryError::NoBootstrapUrls => return ErrorImportance::Ignore,
-                        _ => {}
-                    },
-                    _ => {}
-                }
-            }
+        if let Some(RdapClientError::BootstrapError(BootstrapRegistryError::NoBootstrapUrls)) =
+            err.downcast_ref::<RdapClientError>()
+        {
+            return ErrorImportance::Ignore;
         }
 
         ErrorImportance::default()

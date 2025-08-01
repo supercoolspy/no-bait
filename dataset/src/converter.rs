@@ -293,8 +293,8 @@ pub mod test_support {
     use crate::collectors::safebrowsing::SafebrowsingClient;
     use crate::converter::ConverterError;
     use crate::database::{DetectedDomainWithId, DomainWithId};
-    use std::sync::Arc;
     use arc_swap::ArcSwap;
+    use std::sync::Arc;
     use tldextract::TldExtractor;
 
     pub(crate) async fn get_info_for_domain(

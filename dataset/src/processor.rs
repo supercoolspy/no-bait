@@ -307,7 +307,7 @@ mod tests {
             |_db_state, domain_info_processors, _ssl_mate_client, domains| async move {
                 vec![
                     converter::test_support::get_info_for_domain(
-                        domains.into_iter().take(1).last().unwrap(),
+                        domains.into_iter().take(1).next_back().unwrap(),
                         &TLD_EXTRACTOR,
                         &domain_info_processors,
                         &None,
