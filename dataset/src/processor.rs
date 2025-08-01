@@ -305,14 +305,16 @@ mod tests {
         let domains: Vec<DomainWithId> = process_domains(
             vec![test_domain],
             |_db_state, domain_info_processors, _ssl_mate_client, domains| async move {
-                converter::test_support::get_info_for_domains(
-                    domains,
-                    &TLD_EXTRACTOR,
-                    &domain_info_processors,
-                    &None,
-                )
-                .await
-                .collect()
+                vec![
+                    converter::test_support::get_info_for_domain(
+                        domains.into_iter().take(1).last().unwrap(),
+                        &TLD_EXTRACTOR,
+                        &domain_info_processors,
+                        &None,
+                    )
+                    .await
+                    .unwrap(),
+                ]
             },
         )
         .await;
