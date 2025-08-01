@@ -57,7 +57,7 @@ impl AutoWhoisClient {
     fn success(value: &Value) -> Option<bool> {
         let object = value.as_object()?;
 
-        object.get("AutoWhoisInfo")?.get("success")?.as_bool()
+        object.get("success")?.as_bool()
     }
 }
 
