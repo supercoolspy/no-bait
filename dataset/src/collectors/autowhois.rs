@@ -1,4 +1,4 @@
-use crate::collectors::DomainInfoClient;
+use crate::collectors::{DomainInfoClient, ErrorImportance};
 use crate::database::{Cache, DBState, DatabaseError, DomainInfo};
 use async_trait::async_trait;
 use reqwest_middleware::ClientWithMiddleware;
@@ -64,7 +64,7 @@ impl AutoWhoisClient {
 #[async_trait]
 impl DomainInfoClient for AutoWhoisClient {
     /// Gets whois info for a specified domain from AutoWhois
-    #[instrument(skip(self), err)]
+    #[instrument(skip(self))]
     async fn get_info(
         &self,
         root: &str,
@@ -118,17 +118,20 @@ impl DomainInfoClient for AutoWhoisClient {
         Ok(DomainInfo::AutoWhoisInfo(response))
     }
 
-    fn should_continue(&self, err: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
+    fn error_importance(
+        &self,
+        err: &(dyn std::error::Error + Send + Sync + 'static),
+    ) -> ErrorImportance {
         if let Some(err) = err.downcast_ref::<AutoWhoisError>() {
             match err {
                 // TODO: Check why failed
-                AutoWhoisError::RequestFailure(_) => false,
-                AutoWhoisError::RateLimited => false,
-                _ => true,
+                AutoWhoisError::RequestFailure(_) => return ErrorImportance::Stop,
+                AutoWhoisError::RateLimited => return ErrorImportance::Stop,
+                _ => {}
             }
-        } else {
-            true
         }
+
+        ErrorImportance::default()
     }
 }
 

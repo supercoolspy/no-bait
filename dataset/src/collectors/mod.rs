@@ -76,6 +76,19 @@ impl TldUrl for TldResult {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum ErrorImportance {
+    Ignore,
+    Log,
+    Stop,
+}
+
+impl Default for ErrorImportance {
+    fn default() -> Self {
+        Self::Log
+    }
+}
+
 #[async_trait]
 pub trait DomainInfoClient: Send + Sync {
     async fn get_info(
@@ -83,9 +96,10 @@ pub trait DomainInfoClient: Send + Sync {
         root: &str,
     ) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>>;
 
-    fn should_continue(&self, _err: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
-        true
-    }
+    fn error_importance(
+        &self,
+        _err: &(dyn std::error::Error + Send + Sync + 'static),
+    ) -> ErrorImportance;
 }
 
 #[cfg(test)]

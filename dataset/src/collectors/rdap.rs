@@ -1,9 +1,11 @@
-use crate::collectors::DomainInfoClient;
+use crate::collectors::{DomainInfoClient, ErrorImportance};
 use crate::database::{Cache, DBState, DatabaseError, DomainInfo};
 use async_trait::async_trait;
+use icann_rdap_client::RdapClientError;
 use icann_rdap_client::http::{ClientConfig, create_client};
 use icann_rdap_client::iana::MemoryBootstrapStore;
 use icann_rdap_client::rdap::{QueryType, rdap_bootstrapped_request, rdap_url_request};
+use icann_rdap_common::iana::BootstrapRegistryError;
 use icann_rdap_common::prelude::{Link, ObjectCommonFields, RdapResponse};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -61,7 +63,7 @@ impl RDAPClient {
 #[async_trait]
 impl DomainInfoClient for RDAPClient {
     /// Gets RDAP info for a domain
-    #[instrument(skip(self), err)]
+    #[instrument(skip(self))]
     async fn get_info(
         &self,
         root: &str,
@@ -111,6 +113,25 @@ impl DomainInfoClient for RDAPClient {
         } else {
             Err(RDAPError::NoDomain(root.to_string()).into())
         }
+    }
+
+    fn error_importance(
+        &self,
+        err: &(dyn std::error::Error + Send + Sync + 'static),
+    ) -> ErrorImportance {
+        if let Some(err) = err.downcast_ref::<RDAPError>() {
+            if let RDAPError::RDAPClient(err) = err {
+                match err {
+                    RdapClientError::BootstrapError(err) => match err {
+                        BootstrapRegistryError::NoBootstrapUrls => return ErrorImportance::Ignore,
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
+
+        ErrorImportance::default()
     }
 }
 

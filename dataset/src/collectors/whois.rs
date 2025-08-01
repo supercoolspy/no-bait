@@ -1,4 +1,4 @@
-use crate::collectors::DomainInfoClient;
+use crate::collectors::{DomainInfoClient, ErrorImportance};
 use crate::database::{Cache, DBState, DatabaseError, DomainInfo};
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -51,7 +51,7 @@ impl WhoisClient {
 
 #[async_trait]
 impl DomainInfoClient for WhoisClient {
-    #[instrument(skip(self), err)]
+    #[instrument(skip(self))]
     async fn get_info(
         &self,
         root: &str,
@@ -85,6 +85,20 @@ impl DomainInfoClient for WhoisClient {
             .await?;
 
         Ok(DomainInfo::WhoisInfo(whois_data))
+    }
+
+    fn error_importance(
+        &self,
+        err: &(dyn std::error::Error + Send + Sync + 'static),
+    ) -> ErrorImportance {
+        if let Some(err) = err.downcast_ref::<WhoIsError>() {
+            match err {
+                WhoIsError::NoWhois => return ErrorImportance::Ignore,
+                _ => {}
+            }
+        }
+
+        ErrorImportance::default()
     }
 }
 

@@ -2,7 +2,7 @@ use crate::collectors::rdap::RDAPError;
 use crate::collectors::safebrowsing::{SafebrowsingClient, SafebrowsingError};
 use crate::collectors::sslmate::{SslMateClient, SslMateError};
 use crate::collectors::whois::WhoIsError;
-use crate::collectors::{DomainInfoClient, TldUrl};
+use crate::collectors::{DomainInfoClient, ErrorImportance, TldUrl};
 use crate::database::{
     DBState, DatabaseError, DetectedDomainWithId, Domain, DomainInfo, DomainWithId, add_domain,
     check_exists, update_domain,
@@ -129,19 +129,23 @@ async fn get_info_for_domains(
 
                 let err = res.expect_err("Should be error or breaked");
 
-                if next.should_continue(err.as_ref()) {
-                    error!("Failed to get domain info from collector: {}", err);
-                } else {
-                    let mut new_domain_info_processor_value =
-                        domain_info_processor_value.as_ref().clone();
-                    new_domain_info_processor_value.remove(index);
-
-                    drop(domain_info_processor.compare_and_swap(
-                        &domain_info_processor_value,
-                        Arc::from(new_domain_info_processor_value),
-                    ));
-                }
+        match next.error_importance(err.as_ref()) {
+            ErrorImportance::Ignore => {}
+            ErrorImportance::Log => {
+                error!("Failed to get domain info from collector: {}", err);
             }
+            ErrorImportance::Stop => {
+                let mut new_domain_info_processor_value =
+                    domain_info_processor_value.as_ref().clone();
+                new_domain_info_processor_value.remove(index);
+
+                drop(domain_info_processor.compare_and_swap(
+                    &domain_info_processor_value,
+                    Arc::from(new_domain_info_processor_value),
+                ));
+            }
+        }
+    }
 
             let domain_res = Ok(DomainWithId {
                 domain: Domain {
