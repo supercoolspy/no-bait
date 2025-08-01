@@ -397,7 +397,7 @@ async fn create_domain_row(conn: &Connection, domain: Domain) -> Result<(), Data
             domain.url.as_str().to_string(),
             serde_json::to_string(&domain.whois_info)?,
             serde_json::to_string(&domain.cert_info)?,
-            serde_json::to_string(&vec![domain.collectors])?,
+            serde_json::to_string(&domain.collectors)?,
         ],
     )
     .await?;

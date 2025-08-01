@@ -257,6 +257,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn process_single_update() {
+        process_domains_simple(vec![
+            DetectedDomain {
+                url: "https://example.com".parse().unwrap(),
+                collector_info: DomainCollectorInfo {
+                    collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
+                        category: None,
+                    },
+                    phishing: false,
+                },
+            },
+            DetectedDomain {
+                url: "https://example.com".parse().unwrap(),
+                collector_info: DomainCollectorInfo {
+                    collector_specific_info: CollectorSpecificInfo::PhishStorm {
+                        ranking: 100000000,
+                    },
+                    phishing: false,
+                },
+            },
+        ])
+        .await
+    }
+
+    #[tokio::test]
     async fn process_single_rdap() {
         process_single_named("https://google.dev").await
     }
