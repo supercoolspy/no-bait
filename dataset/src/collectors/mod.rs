@@ -83,8 +83,8 @@ pub trait DomainInfoClient: Send + Sync {
         root: &str,
     ) -> Result<DomainInfo, Box<dyn std::error::Error + Send + Sync>>;
 
-    fn rate_limited(&self) -> bool {
-        false
+    fn should_continue(&self, _err: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
+        true
     }
 }
 

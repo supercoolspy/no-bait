@@ -13,6 +13,7 @@ use libsql::Connection;
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use arc_swap::ArcSwap;
 use thiserror::Error;
 use tldextract::TldExtractor;
 use tracing::{debug, error, instrument, trace, warn};
@@ -85,10 +86,12 @@ async fn check_domains_exist(
 #[instrument(skip_all, fields(domains_len=domains.len()))]
 async fn get_info_for_domains(
     domains: Vec<DetectedDomainWithId>,
-    domain_info_processor: &Vec<Arc<dyn DomainInfoClient>>,
+    domain_info_processor: &[Arc<dyn DomainInfoClient>],
     tld_extractor: &TldExtractor,
     gsb_client: &Option<SafebrowsingClient>,
 ) -> impl Iterator<Item = DomainWithId> {
+    let domain_info_processor = &ArcSwap::new(Arc::new(domain_info_processor.to_owned()));
+
     // Add whois/rdap info to domains that aren't already in the database
     let domains_to_add = iter(domains.into_iter())
         .map(|domain| async move {
@@ -113,12 +116,9 @@ async fn get_info_for_domains(
             let root = root_result.unwrap();
             let mut domain_info = DomainInfo::None;
 
-            for (index, next) in domain_info_processor.iter().enumerate() {
-                if next.rate_limited() {
-                    trace!("Skipping {}, ratelimited", index);
-                    continue;
-                }
+            let domain_info_processor_value = domain_info_processor.load_full();
 
+            for (index, next) in domain_info_processor_value.iter().enumerate() {
                 let res = next.get_info(&root).await;
 
                 if let Ok(info) = res {
@@ -129,8 +129,15 @@ async fn get_info_for_domains(
 
                 let err = res.expect_err("Should be error or breaked");
 
-                error!("Failed to get domain info from collector: {}", err);
-            }
+                if next.should_continue(err.as_ref()) {
+                    error!("Failed to get domain info from collector: {}", err);
+                } else {
+                    let mut new_domain_info_processor_value = domain_info_processor_value.as_ref().clone();
+                    new_domain_info_processor_value.remove(index);
+
+                    drop(domain_info_processor.compare_and_swap(&domain_info_processor_value, Arc::from(new_domain_info_processor_value)));
+                }
+            };
 
             let domain_res = Ok(DomainWithId {
                 domain: Domain {
@@ -157,7 +164,7 @@ async fn get_info_for_domains(
                             return Ok(domain_with_id)
                         }
 
-                        return Err((domain_with_id.domain.url.clone(), ConverterError::from(err)))
+                        return Err((domain_with_id.domain.url.clone(), err.into()))
                     }
 
                     domain_with_id.domain.collectors.push(gsb_detection_res.unwrap());

@@ -81,7 +81,7 @@ impl SslMateClient {
     }
 
     /// Gets certs for a specified domain
-    #[instrument(skip(self), err)]
+    #[instrument(skip(self))]
     pub async fn get_certs(
         &self,
         domain: &str,

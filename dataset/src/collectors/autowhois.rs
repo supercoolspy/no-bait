@@ -23,6 +23,9 @@ pub enum AutoWhoisError {
     #[error("TLD Extract error: {0}")]
     TLDExtract(#[from] tldextract::TldExtractError),
 
+    #[error("Request failure")]
+    RequestFailure(Value),
+
     #[error("AutoWhois Ratelimit Reached")]
     RateLimited,
 }
@@ -49,6 +52,14 @@ impl AutoWhoisClient {
                 .await
                 .expect("Should be able to create cache"),
         }
+    }
+
+    fn success(
+        value: &Value
+    ) -> Option<bool> {
+        let object = value.as_object()?;
+
+        object.get("AutoWhoisInfo")?.get("success")?.as_bool()
     }
 }
 
@@ -98,25 +109,27 @@ impl DomainInfoClient for AutoWhoisClient {
 
         let response: Value = response_res?.json().await?;
 
+        let success = Self::success(&response);
+
+        if success.is_none() || success.is_some_and(|v| !v) {
+            return Err(AutoWhoisError::RequestFailure(response).into())
+        }
+
         self.cache.add_to_cache(root.to_string(), &response).await?;
 
         Ok(DomainInfo::AutoWhoisInfo(response))
     }
 
-    fn rate_limited(&self) -> bool {
-        let last_limited = self.rate_limited.load(Ordering::Relaxed);
-
-        if last_limited == 0 {
-            false
+    fn should_continue(&self, err: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
+        if let Some(err) = err.downcast_ref::<AutoWhoisError>() {
+            match err {
+                // TODO: Check why failed
+                AutoWhoisError::RequestFailure(_) => false,
+                AutoWhoisError::RateLimited => false,
+                _ => true
+            }
         } else {
-            let now = SystemTime::now();
-
-            let unix_time_sec = now
-                .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards")
-                .as_secs();
-
-            last_limited + 60 >= unix_time_sec
+            true
         }
     }
 }
