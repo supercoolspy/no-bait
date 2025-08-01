@@ -109,7 +109,7 @@ impl SafebrowsingClient {
     }
 
     pub(crate) fn rate_limited(&self) -> bool {
-        let last_limited = self.rate_limited.load(Ordering::Relaxed);
+        let last_limited = self.rate_limited.load(Ordering::Acquire);
 
         if last_limited == 0 {
             false
@@ -166,7 +166,7 @@ impl SafebrowsingClient {
                         .expect("Time went backwards")
                         .as_secs();
 
-                    self.rate_limited.store(unix_time_sec, Ordering::Relaxed);
+                    self.rate_limited.store(unix_time_sec, Ordering::Release);
 
                     return Err(SafebrowsingError::RateLimited);
                 }

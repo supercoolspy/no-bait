@@ -7,13 +7,13 @@ use crate::database::{
     DBState, DatabaseError, DetectedDomainWithId, Domain, DomainInfo, DomainWithId, add_domain,
     check_exists, update_domain,
 };
+use arc_swap::ArcSwap;
 use futures::StreamExt;
 use futures::stream::iter;
 use libsql::Connection;
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use arc_swap::ArcSwap;
 use thiserror::Error;
 use tldextract::TldExtractor;
 use tracing::{debug, error, instrument, trace, warn};
@@ -132,12 +132,16 @@ async fn get_info_for_domains(
                 if next.should_continue(err.as_ref()) {
                     error!("Failed to get domain info from collector: {}", err);
                 } else {
-                    let mut new_domain_info_processor_value = domain_info_processor_value.as_ref().clone();
+                    let mut new_domain_info_processor_value =
+                        domain_info_processor_value.as_ref().clone();
                     new_domain_info_processor_value.remove(index);
 
-                    drop(domain_info_processor.compare_and_swap(&domain_info_processor_value, Arc::from(new_domain_info_processor_value)));
+                    drop(domain_info_processor.compare_and_swap(
+                        &domain_info_processor_value,
+                        Arc::from(new_domain_info_processor_value),
+                    ));
                 }
-            };
+            }
 
             let domain_res = Ok(DomainWithId {
                 domain: Domain {
@@ -161,13 +165,16 @@ async fn get_info_for_domains(
 
                     if let Err(err) = gsb_detection_res {
                         if matches!(err, SafebrowsingError::RateLimited) {
-                            return Ok(domain_with_id)
+                            return Ok(domain_with_id);
                         }
 
-                        return Err((domain_with_id.domain.url.clone(), err.into()))
+                        return Err((domain_with_id.domain.url.clone(), err.into()));
                     }
 
-                    domain_with_id.domain.collectors.push(gsb_detection_res.unwrap());
+                    domain_with_id
+                        .domain
+                        .collectors
+                        .push(gsb_detection_res.unwrap());
 
                     Ok(domain_with_id)
                 } else {
@@ -249,7 +256,7 @@ pub async fn add_certs(
 
     iter(domains)
         .map(|mut domain_with_id| async move {
-            if domain_with_id.domain.cert_info.is_some() || rate_limited.load(Ordering::Relaxed) {
+            if domain_with_id.domain.cert_info.is_some() || rate_limited.load(Ordering::Acquire) {
                 return domain_with_id
             }
 
@@ -271,7 +278,7 @@ pub async fn add_certs(
 
                     if matches!(err, SslMateError::RateLimited) {
                         // Stop requesting certs if we get ratelimited
-                        rate_limited.store(true, Ordering::Relaxed)
+                        rate_limited.store(true, Ordering::Release)
                     } else {
                         error!(url=?domain_with_id.domain.url, "Failed to get domain info for domain: {}", err);
                     }

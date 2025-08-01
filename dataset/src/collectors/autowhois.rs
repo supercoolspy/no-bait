@@ -54,9 +54,7 @@ impl AutoWhoisClient {
         }
     }
 
-    fn success(
-        value: &Value
-    ) -> Option<bool> {
+    fn success(value: &Value) -> Option<bool> {
         let object = value.as_object()?;
 
         object.get("AutoWhoisInfo")?.get("success")?.as_bool()
@@ -112,7 +110,7 @@ impl DomainInfoClient for AutoWhoisClient {
         let success = Self::success(&response);
 
         if success.is_none() || success.is_some_and(|v| !v) {
-            return Err(AutoWhoisError::RequestFailure(response).into())
+            return Err(AutoWhoisError::RequestFailure(response).into());
         }
 
         self.cache.add_to_cache(root.to_string(), &response).await?;
@@ -126,7 +124,7 @@ impl DomainInfoClient for AutoWhoisClient {
                 // TODO: Check why failed
                 AutoWhoisError::RequestFailure(_) => false,
                 AutoWhoisError::RateLimited => false,
-                _ => true
+                _ => true,
             }
         } else {
             true
