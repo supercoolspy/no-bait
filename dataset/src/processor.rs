@@ -11,7 +11,7 @@ use std::time::Duration;
 use tldextract::TldExtractor;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 pub(crate) async fn wait_until_finished(
     shutdown: Arc<AtomicBool>,
@@ -132,6 +132,8 @@ async fn process_domains(
     gsb_client: &Option<SafebrowsingClient>,
     amount: usize,
 ) {
+    debug!("Processing {} domains", amount);
+
     let pending_res = get_pending_domains(db_state, amount as u64).await;
 
     if pending_res.is_err() {
