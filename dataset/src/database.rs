@@ -707,6 +707,7 @@ pub async fn get_amount_pending_db(conn: &Connection) -> Result<u64, DatabaseErr
         .ok_or(DatabaseError::NoRow)?;
 
     trace!("Returned info: {:?}", row);
+    trace!("Returned row: {:?}", row.get(0)?);
 
     Ok(row.get(0)?)
 }
