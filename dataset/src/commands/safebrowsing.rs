@@ -2,7 +2,7 @@ use crate::collectors::safebrowsing::{SafebrowsingClient, SafebrowsingError};
 use clap::Args;
 use tracing::{Instrument, info_span, instrument};
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub(crate) struct SafebrowsingCommand {
     website: String,
 }

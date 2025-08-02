@@ -7,7 +7,7 @@ use tldextract::{TldExtractError, TldExtractor};
 use tracing::instrument;
 use url::Url;
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub(crate) struct WhoIsCommand {
     website: String,
 }

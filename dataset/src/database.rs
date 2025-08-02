@@ -1,3 +1,4 @@
+use crate::Arguments;
 use crate::collectors::sslmate::SslMateResponse;
 use crate::collectors::{DetectedDomain, DomainCollectorInfo};
 use futures::executor::block_on;
@@ -39,7 +40,14 @@ pub struct DetectedDomainWithId {
 #[derive(Clone)]
 pub struct DBState {
     conn: Connection,
+
     db_only: bool,
+    use_time_to_live: bool,
+    time_to_expiry: u64,
+    max_cache_size: u64,
+    max_domains_to_process: usize,
+    max_concurrent_domains: usize,
+
     /// Pending domains only from this run, None if db_only is true
     pending_domains: Option<Arc<Mutex<Vec<DetectedDomainWithId>>>>,
     /// Channel sender for the amount of pending domains added to the db/in-memory map
@@ -58,8 +66,15 @@ impl Debug for DBState {
 impl DBState {
     /// Create a new Database State object.
     /// Should only be called once.
-    fn new(conn: Connection, db_only: bool) -> (Self, Receiver<usize>) {
+    fn new(conn: Connection, args: &Arguments) -> (Self, Receiver<usize>) {
         let (tx, rx): (Sender<usize>, Receiver<usize>) = mpsc::channel(5);
+
+        let db_only = args.db_only;
+        let max_cache_size = args.max_cache_size;
+        let max_concurrent_domains = args.max_concurrent_domains;
+        let max_domains_to_process = args.max_domains_to_process;
+        let time_to_expiry = args.time_to_expiry;
+        let use_time_to_live = args.use_time_to_live;
 
         (
             Self {
@@ -70,6 +85,11 @@ impl DBState {
                 } else {
                     Some(Arc::new(Mutex::new(Vec::new())))
                 },
+                max_cache_size,
+                max_concurrent_domains,
+                max_domains_to_process,
+                time_to_expiry,
+                use_time_to_live,
                 channel_sender: tx,
             },
             rx,
@@ -113,6 +133,14 @@ impl DBState {
         self.pending_domains
             .as_ref()
             .expect("Pending domains should exist")
+    }
+
+    pub fn get_max_to_process(&self) -> usize {
+        self.max_domains_to_process
+    }
+
+    pub fn get_max_concurrent(&self) -> usize {
+        self.max_concurrent_domains
     }
 }
 
@@ -204,42 +232,53 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> Cache<T> {
 
         let instance = Self {
             memory_cache: if memory {
-                let db_state = db_state.clone();
+                let db_state_clone = db_state.clone();
                 let name: Arc<str> = Arc::from(name.clone());
 
-                Some(
-                    MemoryCache::builder()
-                        .async_eviction_listener(move |k: Arc<String>, v: T, cause| {
-                            let db_state = db_state.clone();
-                            let name = name.clone();
+                let mut builder = MemoryCache::builder().async_eviction_listener(
+                    move |k: Arc<String>, v: T, cause| {
+                        let db_state = db_state_clone.clone();
+                        let name = name.clone();
 
-                            async move {
-                                if !cause.was_evicted() {
-                                    trace!(name = name.as_ref(), "Cause was not eviction");
-                                    // We don't want to do anything if the program explicitly removed an entry
-                                    return;
-                                }
-
-                                let res =
-                                    Self::add_to_cache_db(db_state.get_connection(), &name, &k, &v)
-                                        .await;
-                                trace!(name = name.as_ref(), "Attempted to add to db cache");
-
-                                if res.is_err() {
-                                    error!(
-                                        url = k.as_ref(),
-                                        "Failed to add evicted entry to database cache: {}",
-                                        res.expect_err("Checked if error")
-                                    );
-                                } else {
-                                    trace!(name = name.as_ref(), "Succeeded in adding to cache");
-                                }
+                        async move {
+                            if !cause.was_evicted() {
+                                trace!(name = name.as_ref(), "Cause was not eviction");
+                                // We don't want to do anything if the program explicitly removed an entry
+                                return;
                             }
-                            .boxed()
-                        })
-                        .time_to_idle(Duration::from_secs(600)) // 10 Minutes
-                        .build(),
-                )
+
+                            let res =
+                                Self::add_to_cache_db(db_state.get_connection(), &name, &k, &v)
+                                    .await;
+                            trace!(name = name.as_ref(), "Attempted to add to db cache");
+
+                            if res.is_err() {
+                                error!(
+                                    url = k.as_ref(),
+                                    "Failed to add evicted entry to database cache: {}",
+                                    res.expect_err("Checked if error")
+                                );
+                            } else {
+                                trace!(name = name.as_ref(), "Succeeded in adding to cache");
+                            }
+                        }
+                        .boxed()
+                    },
+                );
+
+                if db_state.time_to_expiry != 0 {
+                    builder = if db_state.use_time_to_live {
+                        builder.time_to_live(Duration::from_secs(db_state.time_to_expiry))
+                    } else {
+                        builder.time_to_idle(Duration::from_secs(db_state.time_to_expiry))
+                    };
+                }
+
+                if db_state.max_cache_size != 0 {
+                    builder = builder.max_capacity(db_state.max_cache_size)
+                }
+
+                Some(builder.build())
             } else {
                 None
             },
@@ -351,7 +390,7 @@ pub enum DatabaseError {
 #[instrument(err)]
 pub(super) async fn connect_to_db(
     remote: bool,
-    db_only: bool,
+    args: &Arguments,
 ) -> libsql::Result<(DBState, Receiver<usize>)> {
     let db = if remote {
         let url = std::env::var("TURSO_DATABASE_URL").expect("TURSO_DATABASE_URL must be set");
@@ -363,7 +402,7 @@ pub(super) async fn connect_to_db(
         Builder::new_local(Path::new("./phishing.db")).build().await
     }?;
 
-    Ok(DBState::new(db.connect()?, db_only))
+    Ok(DBState::new(db.connect()?, args))
 }
 
 /// Create the initial database tables for the program to function
@@ -692,6 +731,7 @@ pub(crate) async fn remove_pending_domains(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::Commands;
     use crate::tests::init;
     use std::sync::Arc;
 
@@ -739,7 +779,20 @@ pub mod tests {
 
         init_db(&conn).await.unwrap();
 
-        let (db_state, receiver) = DBState::new(conn, db_only);
+        let (db_state, receiver) = DBState::new(
+            conn,
+            &Arguments {
+                no_analysis: false,
+                use_gsb: false,
+                db_only,
+                use_time_to_live: false,
+                time_to_expiry: 600,
+                max_cache_size: 0,
+                max_domains_to_process: 600,
+                max_concurrent_domains: 10,
+                command: Commands::Auto,
+            },
+        );
 
         Ok((
             TestDBState {

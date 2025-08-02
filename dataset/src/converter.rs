@@ -236,7 +236,7 @@ pub async fn convert_domains(
     let domain_info_processor = &ArcSwap::new(Arc::new(domain_info_processor.to_owned()));
 
     let rows_to_delete = check_domains_exist(conn, domains)
-        .filter_map(|(exists, domain)| async move {
+        .map(|(exists, domain)| async move {
             if !exists {
                 let url = domain.domain.url.clone();
 
@@ -273,6 +273,8 @@ pub async fn convert_domains(
                 Some(domain.row_id)
             }
         })
+        .buffer_unordered(db_state.get_max_concurrent())
+        .filter_map(|result| async move { result })
         .collect::<Vec<i64>>()
         .await;
 

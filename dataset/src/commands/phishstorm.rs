@@ -6,7 +6,7 @@ use clap::Args;
 use reqwest_middleware::ClientWithMiddleware;
 use tracing::instrument;
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub(crate) struct PhishStormCommand {
     #[arg(short, long, default_value_t = false)]
     local: bool,

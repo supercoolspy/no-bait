@@ -30,23 +30,50 @@ use tldextract::TldOption;
 use tracing::debug;
 use tracing::level_filters::LevelFilter;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "program")]
 struct Arguments {
     #[arg(short, long, default_value_t = false)]
     no_analysis: bool,
 
-    #[arg(short, long, default_value_t = true)]
+    #[arg(long, default_value_t = true)]
     use_gsb: bool,
 
     #[arg(short, long, default_value_t = false)]
     db_only: bool,
 
+    #[arg(long, default_value_t = false)]
+    /// Whether to use time to live (true) or time to idle (false) for the cache.
+    /// Does nothing if db_only.
+    use_time_to_live: bool,
+
+    #[arg(short, long, default_value_t = 600)]
+    /// The duration in seconds for a key in the memory cache to expire.
+    /// Does nothing if db_only.
+    /// 0 means no expiry.
+    time_to_expiry: u64,
+
+    #[arg(long, default_value_t = 0)]
+    /// Max size for an in memory cache.
+    /// Does nothing if db_only.
+    /// 0 means no max size.
+    max_cache_size: u64,
+
+    #[arg(long, default_value_t = 500)]
+    /// The max amount of domains for the processor to handle at once.
+    /// If the value is less than the amount of domains to process the amount will be split into chunks and processed individually.
+    /// This is useful if you have a large chunk of domains, and want to delete them incrementally.
+    max_domains_to_process: usize,
+
+    #[arg(long, default_value_t = 10)]
+    /// The max number of domains to process concurrently.
+    max_concurrent_domains: usize,
+
     #[command(subcommand)]
     command: Commands,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 enum Commands {
     #[command(name = "whois")]
     WhoIs(WhoIsCommand),
@@ -150,7 +177,7 @@ async fn main() {
 
     let args = Arguments::parse();
 
-    let (db_state, receiver) = connect_to_db(false, args.db_only)
+    let (db_state, receiver) = connect_to_db(false, &args)
         .await
         .expect("Should be able to connect to database");
     debug!("Connected to database");

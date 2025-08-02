@@ -13,18 +13,22 @@ use tokio::time::timeout;
 use tracing::{debug, error, info};
 
 pub(crate) async fn wait_until_finished(db_state: &DBState) -> Result<(), DatabaseError> {
-    let pending_memory = db_state.get_pending_count().await;
+    loop {
+        let pending_memory = db_state.get_pending_count().await;
 
-    if pending_memory > 0 {
-        tokio::time::sleep(Duration::from_secs(10)).await;
-        Box::pin(wait_until_finished(db_state)).await?;
-    };
+        if pending_memory > 0 {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            continue;
+        }
 
-    let pending_from_db = get_amount_pending_db(db_state.get_connection()).await?;
+        let pending_from_db = get_amount_pending_db(db_state.get_connection()).await?;
 
-    if pending_from_db > 0 {
-        tokio::time::sleep(Duration::from_secs(10)).await;
-        Box::pin(wait_until_finished(db_state)).await?;
+        if pending_from_db > 0 {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            continue;
+        }
+
+        break;
     }
 
     Ok(())
@@ -40,26 +44,54 @@ pub(super) fn create_processor(
 ) {
     tokio::spawn(async move {
         loop {
+            let max_to_process = db_state.get_max_to_process();
+
             if let Ok(amount_op) = timeout(Duration::from_secs(10), channel_receiver.recv()).await {
                 if amount_op.is_none() {
                     continue;
                 }
 
-                let mut amount = amount_op.unwrap();
+                let amount = amount_op.unwrap();
 
-                if amount > 500 {
-                    amount = 500;
+                if amount > max_to_process {
+                    let remainder = amount % max_to_process;
+
+                    let times_to_process = amount / max_to_process;
+
+                    for _ in 1..=times_to_process {
+                        process_domains(
+                            &db_state,
+                            &tld_extractor,
+                            &domain_info_processor,
+                            &ssl_mate_client,
+                            &gsb_client,
+                            max_to_process,
+                        )
+                        .await;
+                    }
+
+                    if remainder != 0 {
+                        process_domains(
+                            &db_state,
+                            &tld_extractor,
+                            &domain_info_processor,
+                            &ssl_mate_client,
+                            &gsb_client,
+                            remainder,
+                        )
+                        .await;
+                    }
+                } else {
+                    process_domains(
+                        &db_state,
+                        &tld_extractor,
+                        &domain_info_processor,
+                        &ssl_mate_client,
+                        &gsb_client,
+                        amount,
+                    )
+                    .await;
                 }
-
-                process_domains(
-                    &db_state,
-                    &tld_extractor,
-                    &domain_info_processor,
-                    &ssl_mate_client,
-                    &gsb_client,
-                    amount,
-                )
-                .await
             } else {
                 // Timeout hit, check from db
                 let amount = 500;
@@ -373,8 +405,8 @@ mod tests {
 
         let mut rng = rand::rng();
 
-        let random_domain = data.into_iter().choose_multiple(&mut rng, 5);
+        let random_domains = data.into_iter().choose_multiple(&mut rng, 5);
 
-        process_domains_simple(random_domain).await
+        process_domains_simple(random_domains).await
     }
 }
