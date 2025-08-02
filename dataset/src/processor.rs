@@ -11,7 +11,7 @@ use std::time::Duration;
 use tldextract::TldExtractor;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info};
 
 pub(crate) async fn wait_until_finished(
     shutdown: Arc<AtomicBool>,
