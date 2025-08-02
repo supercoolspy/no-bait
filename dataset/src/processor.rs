@@ -6,14 +6,23 @@ use crate::database::{
     DBState, DatabaseError, get_amount_pending_db, get_pending_domains, remove_pending_domains,
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tldextract::TldExtractor;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
 
-pub(crate) async fn wait_until_finished(db_state: &DBState) -> Result<(), DatabaseError> {
+pub(crate) async fn wait_until_finished(
+    shutdown: Arc<AtomicBool>,
+    db_state: &DBState,
+) -> Result<(), DatabaseError> {
     loop {
+        if shutdown.load(Ordering::SeqCst) {
+            info!("Exiting because of Ctrl+C");
+            break;
+        };
+
         let pending_memory = db_state.get_pending_count().await;
 
         if pending_memory > 0 {
@@ -40,10 +49,16 @@ pub(super) fn create_processor(
     domain_info_processor: Arc<Vec<Arc<dyn DomainInfoClient>>>,
     ssl_mate_client: Arc<SslMateClient>,
     gsb_client: Arc<Option<SafebrowsingClient>>,
+    shutdown: Arc<AtomicBool>,
     mut channel_receiver: Receiver<usize>,
 ) {
     tokio::spawn(async move {
         loop {
+            if shutdown.load(Ordering::SeqCst) {
+                info!("Stopping processor because of Ctrl+C");
+                break;
+            };
+
             let max_to_process = db_state.get_max_to_process();
 
             if let Ok(amount_op) = timeout(Duration::from_secs(10), channel_receiver.recv()).await {
@@ -94,7 +109,6 @@ pub(super) fn create_processor(
                 }
             } else {
                 // Timeout hit, check from db
-                let amount = 500;
 
                 process_domains(
                     &db_state,
@@ -102,7 +116,7 @@ pub(super) fn create_processor(
                     &domain_info_processor,
                     &ssl_mate_client,
                     &gsb_client,
-                    amount,
+                    max_to_process,
                 )
                 .await;
             };

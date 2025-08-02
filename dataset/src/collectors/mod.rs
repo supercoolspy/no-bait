@@ -107,7 +107,8 @@ mod tests {
     use crate::collectors::phishtank::get_latest_data;
     use crate::collectors::rdap::RDAPClient;
     use crate::collectors::{DomainInfoClient, ToDetectedDomain, phishstorm, phishtank};
-    use crate::tests::{get_db_state, init};
+    use crate::database::tests::get_test_db_state;
+    use crate::tests::init;
     use crate::{get_gsb_client, get_reqwest_middleware_client};
     use icann_rdap_common::prelude::RdapResponse;
     use reqwest::Client;
@@ -167,7 +168,7 @@ mod tests {
         let client = get_gsb_client(
             get_reqwest_middleware_client(),
             true,
-            get_db_state(false).await,
+            get_test_db_state().await.db_state.clone(),
         )
         .await;
 
@@ -187,7 +188,7 @@ mod tests {
     async fn rdap_get_domain() {
         init();
 
-        let rdap_client = RDAPClient::new(true, get_db_state(false).await).await;
+        let rdap_client = RDAPClient::new(true, get_test_db_state().await.db_state.clone()).await;
 
         // Common for hosting so we want to make sure it resolves
         let domain = "vercel.app";

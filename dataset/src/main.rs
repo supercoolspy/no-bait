@@ -26,9 +26,11 @@ use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tldextract::TldOption;
-use tracing::debug;
+use tokio::signal;
 use tracing::level_filters::LevelFilter;
+use tracing::{debug, info};
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "program")]
@@ -203,6 +205,18 @@ async fn main() {
     domain_info_processors.push(whois.clone());
     domain_info_processors.push(rdap_client);
 
+    let shutdown = Arc::new(AtomicBool::new(false));
+
+    {
+        let shutdown = shutdown.clone();
+
+        tokio::spawn(async move {
+            signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+            info!("Ctrl+C received. Will stop after current domain processing.");
+            shutdown.store(true, Ordering::SeqCst);
+        });
+    }
+
     create_processor(
         db_state.clone(),
         tld_extractor.clone(),
@@ -215,6 +229,7 @@ async fn main() {
         } else {
             Arc::new(None)
         },
+        shutdown.clone(),
         receiver,
     );
     debug!("Created domain processor thread");
@@ -234,17 +249,17 @@ async fn main() {
             .unwrap();
         }
         Commands::PhishTank(command) => {
-            phishtank_command(&client, &db_state, command, args.no_analysis)
+            phishtank_command(&client, &db_state, shutdown, command, args.no_analysis)
                 .await
                 .unwrap()
         }
         Commands::PhishStorm(command) => {
-            phishstorm_command(&client, &db_state, command, args.no_analysis)
+            phishstorm_command(&client, &db_state, shutdown, command, args.no_analysis)
                 .await
                 .unwrap()
         }
         Commands::Auto => {
-            wait_until_finished(&db_state).await.unwrap();
+            wait_until_finished(shutdown, &db_state).await.unwrap();
         }
     }
 }
@@ -260,15 +275,6 @@ mod tests {
 
     pub(crate) static TLD_EXTRACTOR: LazyLock<Arc<TldExtractor>> =
         LazyLock::new(|| Arc::new(TldOption::default().build()));
-
-    pub async fn get_db_state(db_only: bool) -> Arc<DBState> {
-        Arc::new(
-            connect_to_db(false, db_only)
-                .await
-                .expect("Should be able to get db state")
-                .0,
-        )
-    }
 
     pub fn init() {
         INIT.call_once(|| {
