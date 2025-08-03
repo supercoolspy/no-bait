@@ -3,8 +3,11 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::net::{AddrParseError, IpAddr};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tldextract::TldResult;
+use tracing::{debug, instrument, trace};
 use url::{ParseError, Url};
 
 pub(super) mod autowhois;
@@ -133,6 +136,28 @@ pub(crate) trait CsvCollector {
     async fn load_csv(&self, reader: impl Read + Send + Sync) -> Result<Self::Dataset, CsvError>;
 
     async fn get_local(&self) -> Result<Self::Dataset, CsvError>;
+}
+
+#[instrument(skip_all, level = "trace", ret)]
+pub(crate) fn rate_limited(rate_limited: &AtomicU64) -> bool {
+    trace!("Checking if ratelimited");
+    let last_limited = rate_limited.load(Ordering::Acquire);
+    debug!("Got last limited time of {}", last_limited);
+
+    if last_limited == 0 {
+        false
+    } else {
+        let now = SystemTime::now();
+
+        let unix_time_sec = now
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        trace!("Current time is {}", unix_time_sec);
+
+        unix_time_sec - last_limited < 600
+    }
 }
 
 #[cfg(test)]

@@ -125,10 +125,6 @@ async fn get_info_for_domain(
     });
 
     if let Some(gsb_client) = gsb_client {
-        if gsb_client.rate_limited() {
-            return domain_res;
-        }
-
         if let Ok(mut domain_with_id) = domain_res {
             let gsb_detection_res = gsb_client
                 .get_url_batch_threat(domain_with_id.domain.url.to_string())
@@ -188,7 +184,7 @@ pub async fn add_certs(
     tld_extractor: &TldExtractor,
     mut domain_with_id: DomainWithId,
 ) -> DomainWithId {
-    if domain_with_id.domain.cert_info.is_some() || ssl_mate_client.rate_limited() {
+    if domain_with_id.domain.cert_info.is_some() {
         return domain_with_id;
     }
 

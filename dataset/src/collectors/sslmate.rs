@@ -1,3 +1,4 @@
+use crate::collectors::rate_limited;
 use crate::database::{Cache, DBState, DatabaseError};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tldextract::TldResult;
-use tracing::{debug, error, instrument, trace};
+use tracing::{error, instrument};
 
 #[derive(Debug, Error)]
 pub enum SslMateError {
@@ -84,28 +85,6 @@ impl SslMateClient {
         }
     }
 
-    #[instrument(skip_all, level="trace", ret)]
-    pub(crate) fn rate_limited(&self) -> bool {
-        trace!("Checking if ratelimited");
-        let last_limited = self.rate_limited.load(Ordering::Acquire);
-        debug!("Got last limited time of {}", last_limited);
-
-        if last_limited == 0 {
-            false
-        } else {
-            let now = SystemTime::now();
-
-            let unix_time_sec = now
-                .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards")
-                .as_secs();
-
-            trace!("Current time is {}", unix_time_sec);
-
-            unix_time_sec - last_limited > 600
-        }
-    }
-
     /// Gets certs for a specified domain
     #[instrument(skip(self))]
     pub async fn get_certs(
@@ -113,7 +92,7 @@ impl SslMateClient {
         domain: &str,
         extractor_info: TldResult,
     ) -> Result<SslMateResponse, SslMateError> {
-        if self.rate_limited() {
+        if rate_limited(&self.rate_limited) {
             return Err(SslMateError::RateLimited);
         }
 
