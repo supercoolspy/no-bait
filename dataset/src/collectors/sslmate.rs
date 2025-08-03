@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tldextract::TldResult;
-use tracing::{error, instrument};
+use tracing::{debug, error, instrument, trace};
 
 #[derive(Debug, Error)]
 pub enum SslMateError {
@@ -85,7 +85,9 @@ impl SslMateClient {
     }
 
     pub(crate) fn rate_limited(&self) -> bool {
+        trace!("Checking if ratelimited");
         let last_limited = self.rate_limited.load(Ordering::Acquire);
+        debug!("Got last limited time of {}", last_limited);
 
         if last_limited == 0 {
             false
@@ -96,6 +98,8 @@ impl SslMateClient {
                 .duration_since(UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_secs();
+
+            trace!("Current time is {}", unix_time_sec);
 
             last_limited + 60 >= unix_time_sec
         }

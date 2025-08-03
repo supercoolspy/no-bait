@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, trace};
 
 pub(crate) struct SafebrowsingClient {
     api_key: String,
@@ -109,7 +109,9 @@ impl SafebrowsingClient {
     }
 
     pub(crate) fn rate_limited(&self) -> bool {
+        trace!("Checking if ratelimited");
         let last_limited = self.rate_limited.load(Ordering::Acquire);
+        trace!("Got last limited time of {}", last_limited);
 
         if last_limited == 0 {
             false
@@ -120,6 +122,8 @@ impl SafebrowsingClient {
                 .duration_since(UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_secs();
+
+            trace!("Current time is {}", unix_time_sec);
 
             last_limited + 60 >= unix_time_sec
         }
