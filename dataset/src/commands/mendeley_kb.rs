@@ -6,8 +6,8 @@ use clap::Args;
 use reqwest_middleware::ClientWithMiddleware;
 use std::error::Error;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use tracing::instrument;
+use crate::ProcessorInfo;
 
 #[derive(Args, Debug, Clone)]
 pub(crate) struct MendeleyKBCommand {
@@ -15,11 +15,11 @@ pub(crate) struct MendeleyKBCommand {
     local: bool,
 }
 
-#[instrument(skip(client))]
+#[instrument(skip(client, processor_info))]
 pub(crate) async fn mendeley_k_b_command(
     client: Arc<ClientWithMiddleware>,
     db_state: &DBState,
-    shutdown: Arc<AtomicBool>,
+    processor_info: ProcessorInfo,
     command: MendeleyKBCommand,
     no_analysis: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -33,7 +33,7 @@ pub(crate) async fn mendeley_k_b_command(
 
     if !no_analysis {
         add_pending_domains(db_state, dataset.to_detected_domains()?).await?;
-        wait_until_finished(shutdown, db_state).await?;
+        wait_until_finished(processor_info, db_state).await?;
     }
 
     Ok(())

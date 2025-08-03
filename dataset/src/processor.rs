@@ -10,15 +10,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tldextract::TldExtractor;
 use tokio::sync::mpsc::Receiver;
+use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
+use crate::ProcessorInfo;
 
 pub(crate) async fn wait_until_finished(
-    shutdown: Arc<AtomicBool>,
+    processor_info: ProcessorInfo,
     db_state: &DBState,
 ) -> Result<(), DatabaseError> {
     loop {
-        if shutdown.load(Ordering::SeqCst) {
+        if processor_info.shutdown.load(Ordering::SeqCst) {
             info!("Exiting because of Ctrl+C");
             break;
         };
@@ -40,6 +42,8 @@ pub(crate) async fn wait_until_finished(
         break;
     }
 
+    processor_info.processor_task.await.expect("Should complete task");
+
     Ok(())
 }
 
@@ -51,7 +55,7 @@ pub(super) fn create_processor(
     gsb_client: Arc<Option<SafebrowsingClient>>,
     shutdown: Arc<AtomicBool>,
     mut channel_receiver: Receiver<usize>,
-) {
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             if shutdown.load(Ordering::SeqCst) {
@@ -121,7 +125,7 @@ pub(super) fn create_processor(
                 .await;
             };
         }
-    });
+    })
 }
 
 async fn process_domains(

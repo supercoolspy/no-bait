@@ -4,9 +4,8 @@ use crate::database::{DBState, add_pending_domains};
 use crate::processor::wait_until_finished;
 use clap::Args;
 use reqwest_middleware::ClientWithMiddleware;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use tracing::instrument;
+use crate::ProcessorInfo;
 
 #[derive(Args, Debug, Clone)]
 pub(crate) struct PhishTankCommand {
@@ -14,11 +13,11 @@ pub(crate) struct PhishTankCommand {
     local: bool,
 }
 
-#[instrument(skip(client))]
+#[instrument(skip(client, processor_info))]
 pub(crate) async fn phishtank_command(
     client: &ClientWithMiddleware,
     db_state: &DBState,
-    shutdown: Arc<AtomicBool>,
+    processor_info: ProcessorInfo,
     command: PhishTankCommand,
     no_analysis: bool,
 ) -> Result<(), PhishTankError> {
@@ -30,7 +29,7 @@ pub(crate) async fn phishtank_command(
 
     if !no_analysis {
         add_pending_domains(db_state, dataset.to_detected_domains()?).await?;
-        wait_until_finished(shutdown, db_state).await?;
+        wait_until_finished(processor_info, db_state).await?;
     }
 
     Ok(())

@@ -31,6 +31,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tldextract::TldOption;
 use tokio::signal;
+use tokio::task::JoinHandle;
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, info};
 
@@ -168,6 +169,12 @@ fn get_reqwest_middleware_client() -> Arc<ClientWithMiddleware> {
     client
 }
 
+#[derive(Debug)]
+struct ProcessorInfo {
+    shutdown: Arc<AtomicBool>,
+    processor_task: JoinHandle<()>
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -223,7 +230,7 @@ async fn main() {
         });
     }
 
-    create_processor(
+    let processor = create_processor(
         db_state.clone(),
         tld_extractor.clone(),
         Arc::from(domain_info_processors),
@@ -240,6 +247,11 @@ async fn main() {
     );
     debug!("Created domain processor thread");
 
+    let processor_info = ProcessorInfo {
+        shutdown: shutdown.clone(),
+        processor_task: processor
+    };
+
     match args.command {
         Commands::WhoIs(command) => {
             whois_command(&whois, &tld_extractor, command)
@@ -255,27 +267,27 @@ async fn main() {
             .unwrap();
         }
         Commands::PhishTank(command) => {
-            phishtank_command(&client, &db_state, shutdown, command, args.no_analysis)
+            phishtank_command(&client, &db_state, processor_info, command, args.no_analysis)
                 .await
                 .unwrap()
         }
         Commands::PhishStorm(command) => {
-            phishstorm_command(client, &db_state, shutdown, command, args.no_analysis)
+            phishstorm_command(client, &db_state, processor_info, command, args.no_analysis)
                 .await
                 .unwrap()
         }
         Commands::LegitPhish(command) => {
-            legit_phish_command(client, &db_state, shutdown, command, args.no_analysis)
+            legit_phish_command(client, &db_state, processor_info, command, args.no_analysis)
                 .await
                 .unwrap()
         }
         Commands::MendeleyKB(command) => {
-            mendeley_k_b_command(client, &db_state, shutdown, command, args.no_analysis)
+            mendeley_k_b_command(client, &db_state, processor_info, command, args.no_analysis)
                 .await
                 .unwrap()
         }
         Commands::Auto => {
-            wait_until_finished(shutdown, &db_state).await.unwrap();
+            wait_until_finished(processor_info, &db_state).await.unwrap();
         }
     }
 }
