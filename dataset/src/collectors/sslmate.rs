@@ -101,7 +101,7 @@ impl SslMateClient {
 
             trace!("Current time is {}", unix_time_sec);
 
-            last_limited + 60 >= unix_time_sec
+            unix_time_sec - last_limited > 600
         }
     }
 
