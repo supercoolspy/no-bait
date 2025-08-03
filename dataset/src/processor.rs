@@ -259,9 +259,8 @@ mod tests {
         let rdap_client = Arc::new(RDAPClient::new(true, db_state.clone()).await);
         let whois_client = Arc::new(WhoisClient::new(true, db_state.clone()).await);
         // Create domain info processors vector
-        let mut domain_info_processors: Vec<Arc<dyn DomainInfoClient>> = Vec::new();
-        domain_info_processors.push(whois_client);
-        domain_info_processors.push(rdap_client);
+        let domain_info_processors: Vec<Arc<dyn DomainInfoClient>> =
+            vec![whois_client, rdap_client];
 
         let client = get_reqwest_middleware_client();
         let ssl_mate_client = get_ssl_mate_client(client, true, db_state.clone()).await;
