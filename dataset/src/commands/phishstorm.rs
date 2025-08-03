@@ -1,9 +1,10 @@
-use crate::collectors::ToDetectedDomain;
-use crate::collectors::phishstorm::{PhishStormError, download_phishstorm_dataset, get_data_local};
+use crate::collectors::phishstorm::PhishStormClient;
+use crate::collectors::{CsvCollector, ToDetectedDomain};
 use crate::database::{DBState, add_pending_domains};
 use crate::processor::wait_until_finished;
 use clap::Args;
 use reqwest_middleware::ClientWithMiddleware;
+use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tracing::instrument;
@@ -16,16 +17,18 @@ pub(crate) struct PhishStormCommand {
 
 #[instrument(skip(client))]
 pub(crate) async fn phishstorm_command(
-    client: &ClientWithMiddleware,
+    client: Arc<ClientWithMiddleware>,
     db_state: &DBState,
     shutdown: Arc<AtomicBool>,
     command: PhishStormCommand,
     no_analysis: bool,
-) -> Result<(), PhishStormError> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let phishstorm_client = PhishStormClient::new(client);
+
     let dataset = if command.local {
-        get_data_local().await?
+        phishstorm_client.get_local().await?
     } else {
-        download_phishstorm_dataset(client).await?
+        phishstorm_client.download_dataset().await?
     };
 
     if !no_analysis {

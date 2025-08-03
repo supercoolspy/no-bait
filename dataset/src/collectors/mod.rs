@@ -1,6 +1,7 @@
 use crate::database::DomainInfo;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 use std::net::{AddrParseError, IpAddr};
 use thiserror::Error;
 use tldextract::TldResult;
@@ -102,11 +103,41 @@ pub trait DomainInfoClient: Send + Sync {
     ) -> ErrorImportance;
 }
 
+#[derive(Error, Debug)]
+pub(crate) enum CsvError {
+    #[error("Reqwest Middleware error: {0}")]
+    ReqwestMiddleware(#[from] reqwest_middleware::Error),
+
+    #[error("Reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+
+    #[error("Zip file parsing error: {0}")]
+    ZipParse(#[from] zip::result::ZipError),
+
+    #[error("CSV error: {0}")]
+    Csv(#[from] csv::Error),
+
+    #[error("IO Error: {0}")]
+    IOError(#[from] std::io::Error),
+}
+
+pub(crate) trait CsvCollector {
+    type Dataset: ToDetectedDomain;
+
+    async fn download_dataset(&self) -> Result<Self::Dataset, CsvError>;
+
+    async fn load_csv(&self, reader: impl Read + Send + Sync) -> Result<Self::Dataset, CsvError>;
+
+    async fn get_local(&self) -> Result<Self::Dataset, CsvError>;
+}
+
 #[cfg(test)]
 mod tests {
     use crate::collectors::phishtank::get_latest_data;
     use crate::collectors::rdap::RDAPClient;
-    use crate::collectors::{DomainInfoClient, ToDetectedDomain, phishstorm, phishtank};
+    use crate::collectors::{
+        CsvCollector, DomainInfoClient, ToDetectedDomain, phishstorm, phishtank,
+    };
     use crate::database::tests::get_test_db_state;
     use crate::tests::init;
     use crate::{get_gsb_client, get_reqwest_middleware_client};
@@ -153,7 +184,8 @@ mod tests {
             return;
         }
 
-        phishstorm::get_data_local()
+        phishstorm::PhishStormClient::new(get_reqwest_middleware_client())
+            .get_local()
             .await
             .expect("Should be able to get phishstorm data")
             .to_detected_domains()

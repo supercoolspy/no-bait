@@ -254,7 +254,7 @@ async fn main() {
                 .unwrap()
         }
         Commands::PhishStorm(command) => {
-            phishstorm_command(&client, &db_state, shutdown, command, args.no_analysis)
+            phishstorm_command(client, &db_state, shutdown, command, args.no_analysis)
                 .await
                 .unwrap()
         }
@@ -266,7 +266,6 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::{DBState, connect_to_db};
     use std::sync::{Arc, LazyLock, Once};
     use tldextract::{TldExtractor, TldOption};
     use tracing::level_filters::LevelFilter;

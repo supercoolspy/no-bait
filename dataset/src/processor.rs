@@ -175,7 +175,6 @@ async fn process_domains(
 
 #[cfg(test)]
 mod tests {
-    use crate::collectors::DomainInfoClient;
     use crate::collectors::rdap::RDAPClient;
     use crate::collectors::sslmate::SslMateClient;
     use crate::collectors::whois::WhoisClient;
@@ -183,6 +182,7 @@ mod tests {
         CollectorSpecificInfo, DetectedDomain, DomainCollectorInfo, ToDetectedDomain, phishstorm,
         phishtank,
     };
+    use crate::collectors::{CsvCollector, DomainInfoClient};
     use crate::converter::convert_domains;
     use crate::database::tests::get_test_db_state;
     use crate::database::{DBState, DetectedDomainWithId, DomainInfo, DomainWithId};
@@ -390,7 +390,8 @@ mod tests {
             return;
         }
 
-        let data = phishstorm::get_data_local()
+        let data = phishstorm::PhishStormClient::new(get_reqwest_middleware_client())
+            .get_local()
             .await
             .expect("Should be able to get phishstorm data")
             .to_detected_domains()

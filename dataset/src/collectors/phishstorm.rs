@@ -1,15 +1,14 @@
 use crate::collectors::{
-    CollectorSpecificInfo, DetectedDomain, DetectedDomainParseError, DomainCollectorInfo,
-    ToDetectedDomain,
+    CollectorSpecificInfo, CsvCollector, CsvError, DetectedDomain, DetectedDomainParseError,
+    DomainCollectorInfo, ToDetectedDomain,
 };
-use crate::database::DatabaseError;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelIterator;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Cursor, Read};
-use thiserror::Error;
+use std::sync::Arc;
 use tracing::{debug, error, info, info_span, instrument, trace};
 use url::Url;
 use zip::ZipArchive;
@@ -26,86 +25,79 @@ pub(crate) struct PhishStormEntry {
     pub(crate) label: f32,
 }
 
-#[derive(Error, Debug)]
-pub(crate) enum PhishStormError {
-    #[error("Reqwest Middleware error: {0}")]
-    ReqwestMiddleware(#[from] reqwest_middleware::Error),
-
-    #[error("Reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-
-    #[error("Zip file parsing error: {0}")]
-    ZipParse(#[from] zip::result::ZipError),
-
-    #[error("CSV error: {0}")]
-    Csv(#[from] csv::Error),
-
-    #[error("IO Error: {0}")]
-    IOError(#[from] std::io::Error),
-
-    #[error("Parse error: {0}")]
-    ParseError(#[from] DetectedDomainParseError),
-
-    #[error("Database error: {0}")]
-    DatabaseError(#[from] DatabaseError),
+pub struct PhishStormClient {
+    client: Arc<ClientWithMiddleware>,
 }
 
-#[instrument(skip(client), err)]
-pub(crate) async fn download_phishstorm_dataset(
-    client: &ClientWithMiddleware,
-) -> Result<PhishStormDataset, PhishStormError> {
-    info!("Downloading PhishStorm dataset");
-    let res = client
-        .get("https://research.aalto.fi/files/16859732/urlset.csv.zip")
-        .send()
-        .await?
-        .error_for_status()?;
-    info!("Downloaded PhishStorm dataset");
-
-    let mut archive = ZipArchive::new(Cursor::new(res.bytes().await?))?;
-    let mut file = archive.by_name("urlset.csv")?;
-
-    let mut save_file = File::create("./phishstorm.csv")?;
-
-    std::io::copy(&mut file, &mut save_file)?;
-    debug!("Saved dataset to storage");
-
-    read_csv_to_data(file)
+impl PhishStormClient {
+    pub fn new(client: Arc<ClientWithMiddleware>) -> Self {
+        Self { client }
+    }
 }
 
-#[instrument(err)]
-pub(crate) async fn get_data_local() -> Result<PhishStormDataset, PhishStormError> {
-    let file = tokio::fs::File::open("./phishstorm.csv").await?;
-    debug!("Read phishstorm csv locally");
+impl CsvCollector for PhishStormClient {
+    type Dataset = PhishStormDataset;
 
-    read_csv_to_data(file.into_std().await)
-}
+    #[instrument(skip_all, err)]
+    async fn download_dataset(&self) -> Result<Self::Dataset, CsvError> {
+        info!("Downloading PhishStorm dataset");
+        let res = self
+            .client
+            .get("https://research.aalto.fi/files/16859732/urlset.csv.zip")
+            .send()
+            .await?
+            .error_for_status()?;
+        info!("Downloaded PhishStorm dataset");
 
-#[instrument(skip(reader), err)]
-fn read_csv_to_data(reader: impl Read) -> Result<PhishStormDataset, PhishStormError> {
-    let mut data = Vec::new();
+        let mut archive = ZipArchive::new(Cursor::new(res.bytes().await?))?;
+        let mut file = archive.by_name("urlset.csv")?;
 
-    let mut csv_reader = csv::Reader::from_reader(reader);
-    for result in csv_reader
-        .deserialize()
-        .enumerate()
-        .filter_map(|(line, row)| {
-            // 18232-18348 contain invalid data, 19582 (19605 in the csv) contains an invalid domain name
-            if !(18231..=18349).contains(&line) && line != 19582 {
-                trace!(row_res=?row, "{} is valid line", line);
-                Some(row)
-            } else {
-                trace!(row_res=?row, "{} is invalid line", line);
-                None
-            }
-        })
-    {
-        let record: PhishStormEntry = result?;
-        trace!("Valid record: {}", record.domain);
-        data.push(record);
+        let mut save_file = File::create("./phishstorm.csv")?;
+
+        std::io::copy(&mut file, &mut save_file)?;
+        debug!("Saved dataset to storage");
+
+        // Drop to avoid issues with async barrier
+        drop(file);
+        drop(archive);
+
+        self.load_csv(save_file).await
     }
 
-    Ok(data)
+    #[instrument(skip_all, err)]
+    async fn load_csv(&self, reader: impl Read + Send + Sync) -> Result<Self::Dataset, CsvError> {
+        let mut data = Vec::new();
+
+        let mut csv_reader = csv::Reader::from_reader(reader);
+        for result in csv_reader
+            .deserialize()
+            .enumerate()
+            .filter_map(|(line, row)| {
+                // 18232-18348 contain invalid data, 19582 (19605 in the csv) contains an invalid domain name
+                if !(18231..=18349).contains(&line) && line != 19582 {
+                    trace!(row_res=?row, "{} is valid line", line);
+                    Some(row)
+                } else {
+                    trace!(row_res=?row, "{} is invalid line", line);
+                    None
+                }
+            })
+        {
+            let record: PhishStormEntry = result?;
+            trace!("Valid record: {}", record.domain);
+            data.push(record);
+        }
+
+        Ok(data)
+    }
+
+    #[instrument(skip_all, err)]
+    async fn get_local(&self) -> Result<Self::Dataset, CsvError> {
+        let file = tokio::fs::File::open("./phishstorm.csv").await?;
+        debug!("Read phishstorm csv locally");
+
+        self.load_csv(file.into_std().await).await
+    }
 }
 
 impl ToDetectedDomain for PhishStormDataset {
