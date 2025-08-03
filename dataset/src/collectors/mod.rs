@@ -9,6 +9,7 @@ use url::{ParseError, Url};
 
 pub(super) mod autowhois;
 pub(super) mod legitphish;
+pub(super) mod mendeley_kb;
 pub(super) mod phishstorm;
 pub(super) mod phishtank;
 pub(crate) mod rdap;
@@ -31,6 +32,7 @@ pub enum CollectorSpecificInfo {
     PhishStorm { ranking: u32 },
     GoogleSafeBrowsing { category: Option<String> },
     LegitPhish {},
+    MendeleyKB {},
 }
 
 /// A domain that has been detected by one of the collectors, but has not been processed yet into the database format
@@ -136,6 +138,7 @@ pub(crate) trait CsvCollector {
 #[cfg(test)]
 mod tests {
     use crate::collectors::legitphish::LegitPhishClient;
+    use crate::collectors::mendeley_kb::MendeleyKBClient;
     use crate::collectors::phishtank::get_latest_data;
     use crate::collectors::rdap::RDAPClient;
     use crate::collectors::{
@@ -187,6 +190,19 @@ mod tests {
             .download_dataset()
             .await
             .expect("Should be able to download LegitPhish dataset")
+            .to_detected_domains()
+            .expect("Should be able to convert to detected domains");
+    }
+
+    #[tokio::test]
+    /// Analyze the data
+    async fn analyze_mendeley_k_b_data() {
+        init();
+
+        MendeleyKBClient::new(get_reqwest_middleware_client())
+            .download_dataset()
+            .await
+            .expect("Should be able to download MendeleyKB dataset")
             .to_detected_domains()
             .expect("Should be able to convert to detected domains");
     }

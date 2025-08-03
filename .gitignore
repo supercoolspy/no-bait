@@ -201,6 +201,7 @@ dataset/phishing.db
 dataset/phishtank.json.gz
 dataset/phishstorm.csv
 dataset/LegitPhish.csv
+dataset/MendeleyKB.csv
 dataset/test_phishing*.db
 # Devenv
 .devenv*

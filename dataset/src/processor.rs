@@ -175,6 +175,7 @@ async fn process_domains(
 
 #[cfg(test)]
 mod tests {
+    use crate::collectors::mendeley_kb::MendeleyKBClient;
     use crate::collectors::rdap::RDAPClient;
     use crate::collectors::sslmate::SslMateClient;
     use crate::collectors::whois::WhoisClient;
@@ -439,7 +440,31 @@ mod tests {
         let data = legitphish::LegitPhishClient::new(get_reqwest_middleware_client())
             .get_local()
             .await
-            .expect("Should be able to get phishtank data")
+            .expect("Should be able to get legitphish data")
+            .to_detected_domains()
+            .expect("Should be able to convert to detected domains");
+
+        let mut rng = rand::rng();
+
+        let random_domains = data.into_iter().choose_multiple(&mut rng, 5);
+
+        process_domains_simple(random_domains).await
+    }
+
+    #[tokio::test]
+    /// Analyze the data locally, must be run after analyze_mendeley_k_b_data so that the file exists if in a purely test environment.
+    /// Then choose 5 random domains to process.
+    async fn process_mendeley_k_b_random() {
+        init();
+
+        if !tokio::fs::try_exists("./MendeleyKB.csv").await.unwrap() {
+            return;
+        }
+
+        let data = MendeleyKBClient::new(get_reqwest_middleware_client())
+            .get_local()
+            .await
+            .expect("Should be able to get Mendeley K, B data")
             .to_detected_domains()
             .expect("Should be able to convert to detected domains");
 
