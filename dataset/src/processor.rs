@@ -179,8 +179,8 @@ mod tests {
     use crate::collectors::sslmate::SslMateClient;
     use crate::collectors::whois::WhoisClient;
     use crate::collectors::{
-        CollectorSpecificInfo, DetectedDomain, DomainCollectorInfo, ToDetectedDomain, phishstorm,
-        phishtank,
+        CollectorSpecificInfo, DetectedDomain, DomainCollectorInfo, ToDetectedDomain, legitphish,
+        phishstorm, phishtank,
     };
     use crate::collectors::{CsvCollector, DomainInfoClient};
     use crate::converter::convert_domains;
@@ -414,6 +414,30 @@ mod tests {
         }
 
         let data = phishtank::get_data_local()
+            .await
+            .expect("Should be able to get phishtank data")
+            .to_detected_domains()
+            .expect("Should be able to convert to detected domains");
+
+        let mut rng = rand::rng();
+
+        let random_domains = data.into_iter().choose_multiple(&mut rng, 5);
+
+        process_domains_simple(random_domains).await
+    }
+
+    #[tokio::test]
+    /// Analyze the data locally, must be run after analyze_legit_phish_data so that the file exists if in a purely test environment.
+    /// Then choose 5 random domains to process.
+    async fn process_legit_phish_random() {
+        init();
+
+        if !tokio::fs::try_exists("./LegitPhish.csv").await.unwrap() {
+            return;
+        }
+
+        let data = legitphish::LegitPhishClient::new(get_reqwest_middleware_client())
+            .get_local()
             .await
             .expect("Should be able to get phishtank data")
             .to_detected_domains()

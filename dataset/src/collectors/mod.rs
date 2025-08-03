@@ -135,6 +135,7 @@ pub(crate) trait CsvCollector {
 
 #[cfg(test)]
 mod tests {
+    use crate::collectors::legitphish::LegitPhishClient;
     use crate::collectors::phishtank::get_latest_data;
     use crate::collectors::rdap::RDAPClient;
     use crate::collectors::{
@@ -173,6 +174,19 @@ mod tests {
         phishtank::get_data_local()
             .await
             .expect("Should be able to get phishtank data")
+            .to_detected_domains()
+            .expect("Should be able to convert to detected domains");
+    }
+
+    #[tokio::test]
+    /// Analyze the data
+    async fn analyze_legit_phish_data() {
+        init();
+
+        LegitPhishClient::new(get_reqwest_middleware_client())
+            .download_dataset()
+            .await
+            .expect("Should be able to download LegitPhish dataset")
             .to_detected_domains()
             .expect("Should be able to convert to detected domains");
     }
