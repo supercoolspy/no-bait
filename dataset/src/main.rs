@@ -208,8 +208,8 @@ async fn main() {
     domain_info_processors.push(Arc::new(
         get_auto_whois_client(client.clone(), args.db_only, db_state.clone()).await,
     ));
-    domain_info_processors.push(whois.clone());
     domain_info_processors.push(rdap_client);
+    domain_info_processors.push(whois.clone());
 
     let shutdown = Arc::new(AtomicBool::new(false));
 
