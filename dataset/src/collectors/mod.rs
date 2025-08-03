@@ -8,6 +8,7 @@ use tldextract::TldResult;
 use url::{ParseError, Url};
 
 pub(super) mod autowhois;
+pub(super) mod legitphish;
 pub(super) mod phishstorm;
 pub(super) mod phishtank;
 pub(crate) mod rdap;
@@ -29,6 +30,7 @@ pub enum CollectorSpecificInfo {
     PhishTank { phish_id: i64, ip: Option<IpAddr> },
     PhishStorm { ranking: u32 },
     GoogleSafeBrowsing { category: Option<String> },
+    LegitPhish {},
 }
 
 /// A domain that has been detected by one of the collectors, but has not been processed yet into the database format

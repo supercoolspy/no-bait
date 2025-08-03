@@ -9,6 +9,7 @@ use crate::collectors::autowhois::AutoWhoisClient;
 use crate::collectors::rdap::RDAPClient;
 use crate::collectors::sslmate::SslMateClient;
 use crate::collectors::whois::WhoisClient;
+use crate::commands::legitphish::{LegitPhishCommand, legit_phish_command};
 use crate::database::{DBState, init_db};
 use crate::processor::{create_processor, wait_until_finished};
 use clap::{Parser, Subcommand, arg};
@@ -85,6 +86,8 @@ enum Commands {
     PhishTank(PhishTankCommand),
     #[command(name = "phishstorm")]
     PhishStorm(PhishStormCommand),
+    #[command(name = "legitphish")]
+    LegitPhish(LegitPhishCommand),
     #[command(name = "auto")]
     Auto,
 }
@@ -255,6 +258,11 @@ async fn main() {
         }
         Commands::PhishStorm(command) => {
             phishstorm_command(client, &db_state, shutdown, command, args.no_analysis)
+                .await
+                .unwrap()
+        }
+        Commands::LegitPhish(command) => {
+            legit_phish_command(client, &db_state, shutdown, command, args.no_analysis)
                 .await
                 .unwrap()
         }

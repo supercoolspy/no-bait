@@ -1,3 +1,4 @@
+pub(super) mod legitphish;
 pub(super) mod phishstorm;
 pub(super) mod phishtank;
 pub(super) mod safebrowsing;
