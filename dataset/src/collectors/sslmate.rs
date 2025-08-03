@@ -108,6 +108,10 @@ impl SslMateClient {
         domain: &str,
         extractor_info: TldResult,
     ) -> Result<SslMateResponse, SslMateError> {
+        if self.rate_limited() {
+            return Err(SslMateError::RateLimited);
+        }
+
         let cache_value = self.cache.get_from_cache(domain).await.unwrap_or_default();
 
         if let Some(value) = cache_value {

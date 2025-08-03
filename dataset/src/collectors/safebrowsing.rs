@@ -131,6 +131,10 @@ impl SafebrowsingClient {
         &self,
         url: String,
     ) -> Result<DomainCollectorInfo, SafebrowsingError> {
+        if self.rate_limited() {
+            return Err(SafebrowsingError::RateLimited);
+        }
+
         let cache_value = self
             .cache
             .get_from_cache(url.as_str())
