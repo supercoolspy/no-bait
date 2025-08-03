@@ -63,7 +63,11 @@ impl CsvCollector for LegitPhishClient {
         let mut data = Vec::new();
 
         let mut csv_reader = csv::Reader::from_reader(reader);
-        for result in csv_reader.deserialize() {
+        for result in csv_reader
+            .deserialize()
+            .enumerate()
+            .filter_map(|(line, row)| if line != 65118 { Some(row) } else { None })
+        {
             let record: LegitPhishEntry = result?;
             trace!("Valid record: {}", record.url);
             data.push(record);
@@ -86,9 +90,13 @@ impl ToDetectedDomain for LegitPhishDataset {
     fn to_detected_domains(self) -> Result<Vec<DetectedDomain>, DetectedDomainParseError> {
         self.into_par_iter()
             .map(|d| {
-                let domain = d.url.replace("'", "");
+                let mut domain = d.url.replace("'", "");
                 let parse_span = info_span!("legit_phish_to_detected_domains", domain = domain);
                 let _enter = parse_span.enter();
+
+                if !domain.starts_with("http") {
+                    domain = format!("https://{}", domain);
+                }
 
                 let url_res = domain.parse::<Url>();
                 trace!("URL Result: {:?}", url_res);
