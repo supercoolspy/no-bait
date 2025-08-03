@@ -1,3 +1,4 @@
+use crate::ProcessorInfo;
 use crate::collectors::ToDetectedDomain;
 use crate::collectors::phishtank::{PhishTankError, get_data_local, get_latest_data};
 use crate::database::{DBState, add_pending_domains};
@@ -5,7 +6,6 @@ use crate::processor::wait_until_finished;
 use clap::Args;
 use reqwest_middleware::ClientWithMiddleware;
 use tracing::instrument;
-use crate::ProcessorInfo;
 
 #[derive(Args, Debug, Clone)]
 pub(crate) struct PhishTankCommand {

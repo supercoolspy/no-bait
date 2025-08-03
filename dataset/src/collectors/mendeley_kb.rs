@@ -134,7 +134,10 @@ impl ToDetectedDomain for MendeleyKBDataset {
             .filter_map(|entry| {
                 // Filter out ip addresses
                 // Exclude non-phishing domains for now since dataset is huge
-                if entry.as_ref().is_ok_and(|d| d.url.domain().is_none() || !d.collector_info.phishing) {
+                if entry
+                    .as_ref()
+                    .is_ok_and(|d| d.url.domain().is_none() || !d.collector_info.phishing)
+                {
                     None
                 } else {
                     Some(entry)

@@ -172,7 +172,7 @@ fn get_reqwest_middleware_client() -> Arc<ClientWithMiddleware> {
 #[derive(Debug)]
 struct ProcessorInfo {
     shutdown: Arc<AtomicBool>,
-    processor_task: JoinHandle<()>
+    processor_task: JoinHandle<()>,
 }
 
 #[tokio::main]
@@ -249,7 +249,7 @@ async fn main() {
 
     let processor_info = ProcessorInfo {
         shutdown: shutdown.clone(),
-        processor_task: processor
+        processor_task: processor,
     };
 
     match args.command {
@@ -266,11 +266,15 @@ async fn main() {
             .await
             .unwrap();
         }
-        Commands::PhishTank(command) => {
-            phishtank_command(&client, &db_state, processor_info, command, args.no_analysis)
-                .await
-                .unwrap()
-        }
+        Commands::PhishTank(command) => phishtank_command(
+            &client,
+            &db_state,
+            processor_info,
+            command,
+            args.no_analysis,
+        )
+        .await
+        .unwrap(),
         Commands::PhishStorm(command) => {
             phishstorm_command(client, &db_state, processor_info, command, args.no_analysis)
                 .await
@@ -287,7 +291,9 @@ async fn main() {
                 .unwrap()
         }
         Commands::Auto => {
-            wait_until_finished(processor_info, &db_state).await.unwrap();
+            wait_until_finished(processor_info, &db_state)
+                .await
+                .unwrap();
         }
     }
 }

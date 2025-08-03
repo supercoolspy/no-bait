@@ -1,3 +1,4 @@
+use crate::ProcessorInfo;
 use crate::collectors::DomainInfoClient;
 use crate::collectors::safebrowsing::SafebrowsingClient;
 use crate::collectors::sslmate::SslMateClient;
@@ -13,7 +14,6 @@ use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
-use crate::ProcessorInfo;
 
 pub(crate) async fn wait_until_finished(
     processor_info: ProcessorInfo,
@@ -42,7 +42,10 @@ pub(crate) async fn wait_until_finished(
         break;
     }
 
-    processor_info.processor_task.await.expect("Should complete task");
+    processor_info
+        .processor_task
+        .await
+        .expect("Should complete task");
 
     Ok(())
 }

@@ -1,3 +1,4 @@
+use crate::ProcessorInfo;
 use crate::collectors::phishstorm::PhishStormClient;
 use crate::collectors::{CsvCollector, ToDetectedDomain};
 use crate::database::{DBState, add_pending_domains};
@@ -7,7 +8,6 @@ use reqwest_middleware::ClientWithMiddleware;
 use std::error::Error;
 use std::sync::Arc;
 use tracing::instrument;
-use crate::ProcessorInfo;
 
 #[derive(Args, Debug, Clone)]
 pub(crate) struct PhishStormCommand {
