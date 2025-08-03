@@ -108,6 +108,7 @@ impl SafebrowsingClient {
         }
     }
 
+    #[instrument(skip_all, level="trace", ret)]
     pub(crate) fn rate_limited(&self) -> bool {
         trace!("Checking if ratelimited");
         let last_limited = self.rate_limited.load(Ordering::Acquire);
