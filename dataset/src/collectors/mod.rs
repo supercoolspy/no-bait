@@ -262,7 +262,7 @@ mod tests {
         .await;
 
         let res = client
-            .get_url_batch_threat(
+            .get_url_threat(
                 "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/SOCIAL_ENGINEERING/URL/"
                     .to_string(),
             )

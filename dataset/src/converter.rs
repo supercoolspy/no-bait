@@ -127,7 +127,7 @@ async fn get_info_for_domain(
     if let Some(gsb_client) = gsb_client {
         if let Ok(mut domain_with_id) = domain_res {
             let gsb_detection_res = gsb_client
-                .get_url_batch_threat(domain_with_id.domain.url.to_string())
+                .get_url_threat(domain_with_id.domain.url.to_string())
                 .await;
 
             if let Err(err) = gsb_detection_res {

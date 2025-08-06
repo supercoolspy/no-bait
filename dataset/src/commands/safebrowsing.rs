@@ -1,5 +1,5 @@
 use crate::collectors::safebrowsing::{SafebrowsingClient, SafebrowsingError};
-use clap::Args;
+use clap::{Args, Subcommand};
 use tracing::{Instrument, info_span, instrument};
 
 #[derive(Args, Debug, Clone)]
@@ -13,7 +13,7 @@ pub(crate) async fn safebrowsing_command(
     command: SafebrowsingCommand,
 ) -> Result<(), SafebrowsingError> {
     let results = gsb
-        .get_url_batch_threat(command.website)
+        .get_url_threat(command.website)
         .instrument(info_span!("gsb_get"))
         .await?;
 

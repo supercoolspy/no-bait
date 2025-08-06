@@ -110,7 +110,7 @@ impl SafebrowsingClient {
 
     /// Returns a list of unsafe urls
     #[instrument(skip(self), err)]
-    pub async fn get_url_batch_threat(
+    pub async fn get_url_threat(
         &self,
         url: String,
     ) -> Result<DomainCollectorInfo, SafebrowsingError> {
