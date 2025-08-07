@@ -82,7 +82,7 @@ struct Arguments {
 enum Commands {
     #[command(name = "whois")]
     WhoIs(WhoIsCommand),
-    #[command(name = "gsb")]
+    #[command(subcommand, name = "gsb")]
     GoogleSafeBrowsing(SafebrowsingCommand),
     #[command(name = "phishtank")]
     PhishTank(PhishTankCommand),
@@ -261,6 +261,7 @@ async fn main() {
         Commands::GoogleSafeBrowsing(command) => {
             safebrowsing_command(
                 get_gsb_client(client.clone(), args.db_only, db_state.clone()).await,
+                db_state.clone(),
                 command,
             )
             .await

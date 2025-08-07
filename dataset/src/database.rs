@@ -471,6 +471,13 @@ async fn update_domain_row(
     Ok(())
 }
 
+pub fn row_to_collectors(row: &Row) -> Result<CollectorColumn, DatabaseError> {
+    let collectors_str = row.get::<String>(3)?;
+    trace!("Collectors value in database: {}", collectors_str);
+
+    Ok(serde_json::from_str(&collectors_str)?)
+}
+
 /// Update a domain, returns DatabaseError::NoRow if the row doesn't exist
 #[instrument(skip(conn), err)]
 pub(crate) async fn update_domain(
@@ -483,12 +490,7 @@ pub(crate) async fn update_domain(
         trace!("Row exists");
         let row = row.unwrap();
 
-        let collectors_str = row.get::<String>(3)?;
-        trace!("Collectors value in database: {}", collectors_str);
-
-        let collectors: CollectorColumn = serde_json::from_str(&collectors_str)?;
-
-        update_domain_row(conn, domain, collectors).await
+        update_domain_row(conn, domain, row_to_collectors(&row)?).await
     } else {
         Err(DatabaseError::NoRow)
     }

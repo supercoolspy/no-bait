@@ -2,6 +2,7 @@ use crate::collectors::{CollectorSpecificInfo, DomainCollectorInfo, rate_limited
 use crate::database::{Cache, DBState, DatabaseError};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -106,6 +107,137 @@ impl SafebrowsingClient {
                 .expect("Should be able to create cache"),
             rate_limited: AtomicU64::new(0),
         }
+    }
+
+    /// Returns a list of unsafe urls
+    #[instrument(skip(self), err)]
+    pub async fn get_url_batch_threat(
+        &self,
+        urls: Vec<String>,
+    ) -> Result<HashMap<String, DomainCollectorInfo>, SafebrowsingError> {
+        if rate_limited(&self.rate_limited) {
+            return Err(SafebrowsingError::RateLimited);
+        }
+
+        let urls_len = urls.len();
+
+        let mut url_info: HashMap<String, Option<DomainCollectorInfo>> = HashMap::new();
+
+        for url in urls.into_iter() {
+            let cache_value = self.cache.get_from_cache(&url).await.unwrap_or_default();
+
+            url_info.insert(url, cache_value);
+        }
+
+        if urls_len == url_info.iter().filter(|(_, data)| data.is_some()).count() {
+            return Ok(url_info
+                .into_iter()
+                .filter_map(|(url, data)| data.map(|info| (url.to_string(), info)))
+                .collect());
+        }
+
+        fn url_map_no_matches(
+            url_info: HashMap<String, Option<DomainCollectorInfo>>,
+        ) -> HashMap<String, DomainCollectorInfo> {
+            url_info
+                .into_iter()
+                .map(|(url, info)| {
+                    if let Some(info) = info {
+                        (url.to_string(), info)
+                    } else {
+                        (
+                            url.to_string(),
+                            DomainCollectorInfo {
+                                collector_specific_info:
+                                    CollectorSpecificInfo::GoogleSafeBrowsing { category: None },
+                                phishing: false,
+                            },
+                        )
+                    }
+                })
+                .collect()
+        }
+
+        let mut req_data = REQUEST.clone();
+
+        req_data.threat_info.threat_entries = url_info
+            .iter()
+            .filter_map(|(url, info)| {
+                if info.is_some() {
+                    return None;
+                }
+
+                Some(ThreatEntry {
+                    url: url.to_string(),
+                })
+            })
+            .collect();
+        debug!("Mapped urls to threat entries");
+
+        let res = self
+            .client
+            .post("https://safebrowsing.googleapis.com/v4/threatMatches:find")
+            .query(&[("key", &self.api_key)])
+            .json(&req_data)
+            .send()
+            .await?
+            .error_for_status();
+
+        if let Err(reqwest_err) = res {
+            if let Some(status) = reqwest_err.status() {
+                if status.as_u16() == 429 {
+                    let now = SystemTime::now();
+
+                    let unix_time_sec = now
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_secs();
+
+                    self.rate_limited.store(unix_time_sec, Ordering::Release);
+
+                    return Err(SafebrowsingError::RateLimited);
+                }
+            }
+
+            return Err(reqwest_err.into());
+        }
+
+        debug!("Sent request to safe browsing api without error");
+
+        let data_res: Result<SafebrowsingResponse, reqwest::Error> = res?.json().await;
+        if data_res.is_err() {
+            // No threats
+            debug!("No threats were found");
+            return Ok(url_map_no_matches(url_info));
+        }
+
+        let data = data_res?;
+        debug!("Able to get GSB response as json");
+
+        let info = if data.matches.is_empty() {
+            url_map_no_matches(url_info)
+        } else {
+            for r#match in data.matches.into_iter() {
+                let url = r#match.threat.url;
+
+                if url_info.contains_key(url.as_str()) {
+                    let gsb_info = DomainCollectorInfo {
+                        collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
+                            category: Some(r#match.threat_type),
+                        },
+                        phishing: true,
+                    };
+
+                    self.cache.add_to_cache(url.clone(), &gsb_info).await?;
+
+                    url_info.insert(url, Some(gsb_info));
+                }
+            }
+
+            url_map_no_matches(url_info)
+        };
+
+        Ok(info)
     }
 
     /// Returns a list of unsafe urls
