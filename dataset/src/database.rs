@@ -459,9 +459,9 @@ async fn update_domain_row(
     if let Some(existing_index) = existing_index {
         trace!("Found existing version of collector");
         collectors.swap_remove(existing_index);
+    }
 
-        collectors.push(domain.collector_info);
-    };
+    collectors.push(domain.collector_info);
 
     conn.prepare("UPDATE domains SET collector_info=$2 WHERE url = $1")
         .await?
