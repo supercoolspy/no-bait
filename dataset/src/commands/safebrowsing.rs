@@ -5,10 +5,11 @@ use clap::Subcommand;
 use futures::{StreamExt, TryStreamExt};
 use libsql::{Row, params};
 use std::collections::HashMap;
+use std::str::Utf8Error;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{Instrument, error, info_span, instrument};
-use url::ParseError;
+use tracing::{Instrument, error, info, info_span, instrument};
+use url::{ParseError, Url};
 
 #[derive(Subcommand, Debug, Clone)]
 pub(crate) enum SafebrowsingCommand {
@@ -29,6 +30,9 @@ pub enum SafebrowsingCommandError {
 
     #[error("Url Parsing error: {0}")]
     UrlParse(#[from] ParseError),
+
+    #[error("UFT8 Error: {0}")]
+    UTF8(#[from] Utf8Error),
 }
 
 #[instrument(skip(gsb))]
@@ -60,9 +64,12 @@ pub(crate) async fn safebrowsing_command(
                 .await?;
 
             let mut url_info: HashMap<String, CollectorColumn> = HashMap::with_capacity(500);
+            let mut url_map: HashMap<String, String> = HashMap::with_capacity(500);
 
             while let Ok(Some(row)) = row_query.next().await {
-                let url = row.get_str(0)?.to_string();
+                let unformatted_url: Url = row.get_str(0)?.parse()?;
+
+                url_map.insert(unformatted_url.to_string(), unformatted_url.to_string());
 
                 let collector_info = row_to_collectors(&row)?;
 
@@ -75,7 +82,7 @@ pub(crate) async fn safebrowsing_command(
                     continue;
                 }
 
-                url_info.insert(url, collector_info);
+                url_info.insert(unformatted_url.to_string(), collector_info);
             }
 
             let threats = gsb
@@ -83,11 +90,14 @@ pub(crate) async fn safebrowsing_command(
                 .await?;
 
             for (url, info) in threats.into_iter() {
-                if url_info.contains_key(&url) {
+                if url_info.contains_key(&url) && url_map.contains_key(&url) {
                     update_domain(
                         db_state.get_connection(),
                         DetectedDomain {
-                            url: url.parse()?,
+                            url: url_map
+                                .remove(&url)
+                                .expect("If in map should be able to get key")
+                                .parse()?,
                             collector_info: info,
                         },
                     )
