@@ -2,7 +2,7 @@ use crate::collectors::safebrowsing::{SafebrowsingClient, SafebrowsingError};
 use crate::collectors::{CollectorSpecificInfo, DetectedDomain};
 use crate::database::{CollectorColumn, DBState, DatabaseError, row_to_collectors, update_domain};
 use clap::Subcommand;
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use libsql::{Row, params};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,23 +51,17 @@ pub(crate) async fn safebrowsing_command(
             }
         }
         SafebrowsingCommand::AddToAll => {
-            let rows: Vec<Row> = db_state
+            let mut row_query = db_state
                 .get_connection()
                 .query(
                     "SELECT * FROM domains WHERE collector_info NOT LIKE '%GoogleSafeBrowsing%' LIMIT 500;",
                     params!()
                 )
-                .await?
-                .into_stream()
-                .try_collect()
                 .await?;
 
-            let mut url_info: HashMap<String, CollectorColumn> = HashMap::with_capacity(rows.len());
+            let mut url_info: HashMap<String, CollectorColumn> = HashMap::with_capacity(500);
 
-            error!("{:?}", rows);
-            for row in rows {
-                error!("{:?}", row);
-
+            while let Ok(Some(row)) = row_query.next().await {
                 let url = row.get_str(0)?.to_string();
 
                 let collector_info = row_to_collectors(&row)?;
