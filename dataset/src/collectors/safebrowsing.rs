@@ -3,11 +3,12 @@ use crate::database::{Cache, DBState, DatabaseError};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use tracing::{debug, instrument};
+use tracing::{debug, error, instrument, trace, warn};
 
 pub(crate) struct SafebrowsingClient {
     api_key: String,
@@ -110,7 +111,7 @@ impl SafebrowsingClient {
     }
 
     /// Returns a list of unsafe urls
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, fields(url_len=urls.len()), err)]
     pub async fn get_url_batch_threat(
         &self,
         urls: Vec<String>,
@@ -126,10 +127,13 @@ impl SafebrowsingClient {
         for url in urls.into_iter() {
             let cache_value = self.cache.get_from_cache(&url).await.unwrap_or_default();
 
+            trace!(url = url, "Cache value: {:?}", cache_value);
+
             url_info.insert(url, cache_value);
         }
 
         if urls_len == url_info.iter().filter(|(_, data)| data.is_some()).count() {
+            debug!("URLs length is the same as domains with a cache value, returning");
             return Ok(url_info
                 .into_iter()
                 .filter_map(|(url, data)| data.map(|info| (url.to_string(), info)))
@@ -164,6 +168,10 @@ impl SafebrowsingClient {
             .iter()
             .filter_map(|(url, info)| {
                 if info.is_some() {
+                    trace!(
+                        url = url,
+                        "Ignoring entry since it already has a cache value"
+                    );
                     return None;
                 }
 
@@ -205,22 +213,29 @@ impl SafebrowsingClient {
         debug!("Sent request to safe browsing api without error");
 
         let data_res: Result<SafebrowsingResponse, reqwest::Error> = res?.json().await;
-        if data_res.is_err() {
-            // No threats
-            debug!("No threats were found");
-            return Ok(url_map_no_matches(url_info));
+        if let Err(err) = data_res {
+            if err.is_decode() {
+                debug!("No threats were found");
+                return Ok(url_map_no_matches(url_info));
+            }
+
+            error!("Got error: {}", err);
+            return Err(err.into());
         }
 
         let data = data_res?;
         debug!("Able to get GSB response as json");
 
         let info = if data.matches.is_empty() {
+            debug!("No threats were found");
             url_map_no_matches(url_info)
         } else {
             for r#match in data.matches.into_iter() {
                 let url = r#match.threat.url;
 
                 if url_info.contains_key(url.as_str()) {
+                    trace!(url = url, "Key found in url_info");
+
                     let gsb_info = DomainCollectorInfo {
                         collector_specific_info: CollectorSpecificInfo::GoogleSafeBrowsing {
                             category: Some(r#match.threat_type),
@@ -231,6 +246,8 @@ impl SafebrowsingClient {
                     self.cache.add_to_cache(url.clone(), &gsb_info).await?;
 
                     url_info.insert(url, Some(gsb_info));
+                } else {
+                    warn!(url = url, "No key in url_info for url");
                 }
             }
 
