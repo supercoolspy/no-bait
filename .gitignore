@@ -203,6 +203,7 @@ dataset/phishstorm.csv
 dataset/LegitPhish.csv
 dataset/MendeleyKB.csv
 dataset/test_phishing*.db
+dataset/output.txt
 # Devenv
 .devenv*
 devenv.local.nix
